@@ -1,26 +1,41 @@
 # Agentic Trading Platform Demo
 
-This repo turns the original downloaded single-file trading demo into a share-ready project:
+Agentic Trading Platform Demo is a lightweight multi-agent trading desk simulator built around Microsoft Foundry project endpoints. It combines a browser UI, a small Node backend, GPT-5-series compatibility, local execution simulation, and demo-ready portfolio and news fixtures for showcasing an end-to-end agentic trading workflow.
 
-- static frontend plus local Node backend
-- Microsoft Foundry project endpoint configuration
-- GPT-5-series support through `responses` first and `chat/completions` fallback
-- richer market fixtures for portfolio and news testing
-- environment-based secrets instead of browser-side direct Azure calls
+## Features
+
+- Microsoft Foundry project endpoint support with server-side API calls
+- GPT-5-series support using `/responses` first and `/chat/completions` as a compatibility fallback
+- Multi-agent desk flow across market, fundamental, sentiment, technical, risk, and trader roles
+- Local fallback logic for news analysis, trader proposals, and desk chat when Foundry credentials are not configured
+- Simulated order execution with slicing, slippage, transaction costs, and executed-trade tracking
+- Built-in sample portfolio and sample news aligned to an AI-infrastructure-plus-hedges market posture
+- Price-history and forward-projection charts driven by the portfolio and latest desk signals
+
+## Project layout
+
+- `public/`: frontend UI, desk controls, chat, charts, and proposal views
+- `server.js`: local HTTP server and API routes
+- `lib/foundry.js`: Foundry request handling and GPT-5-series compatibility logic
+- `lib/prompts.js`: structured prompts for desk, news, and chat routes
+- `lib/simulation.js`: execution simulator and portfolio summarization
+- `data/`: sample portfolio and sample news fixtures
+- `tests/`: lightweight Node test coverage for Foundry parsing and execution behavior
 
 ## Quick start
 
-1. Copy `.env.example` to `.env`
-2. Set your Foundry values
-3. Start the app
+1. Install Node.js 20 or newer.
+2. Copy `.env.example` to `.env`.
+3. Set your Foundry values.
+4. Start the app.
 
 ```bash
 npm start
 ```
 
-4. Open `http://127.0.0.1:3000`
+5. Open `http://127.0.0.1:3000`.
 
-## Required environment
+## Environment
 
 ```text
 FOUNDRY_PROJECT_ENDPOINT=https://<resource>.services.ai.azure.com/api/projects/<project-name>
@@ -28,20 +43,49 @@ FOUNDRY_API_KEY=<key>
 FOUNDRY_MODEL_DEPLOYMENT=gpt-5-mini
 ```
 
-The server appends `/openai/v1` to the project endpoint and uses:
+Optional values:
 
-- `/responses` when available
-- `/chat/completions` as a compatibility fallback
+```text
+FOUNDRY_MAX_OUTPUT_TOKENS=1400
+FOUNDRY_REASONING_EFFORT=minimal
+FOUNDRY_VERBOSITY=low
+PORT=3000
+```
+
+The server appends `/openai/v1` to the project endpoint automatically.
+
+## Local demo mode
+
+The app remains usable even without a configured API key or Foundry project endpoint. In local demo mode it can:
+
+- load the sample portfolio
+- load parked sample news on demand
+- analyze selected news locally
+- generate fallback trader proposals
+- respond in desk chat with local agent logic
+- simulate order execution and update charts
+
+This makes the repository easier to share publicly without shipping secrets.
 
 ## Scripts
 
-- `npm start`
-- `npm run dev`
-- `npm run lint`
-- `npm test`
+- `npm start`: run the local server
+- `npm run dev`: run the local server in watch mode
+- `npm run lint`: syntax-check the server, frontend, and library files
+- `npm test`: run the Node test suite
 
-## Notes
+## Demo flow
 
-- This is a simulator, not a brokerage integration.
-- Bundled articles are paraphrased fixtures intended for testing prompt behavior.
-- The UI can use server-side env secrets or request-scoped overrides from the form.
+1. Load the sample portfolio.
+2. Load sample news or add a custom market headline.
+3. Click `Analyze news`.
+4. Click `Run desk` to generate agent output and a trader proposal.
+5. Execute the proposal from the blotter or directly from desk chat.
+6. Review simulated fills, updated holdings, and chart projections.
+
+## Publishing notes
+
+- Do not commit `.env` or any real Foundry keys.
+- This project is a simulator, not a brokerage integration.
+- Sample news articles are testing fixtures, not a live market data feed.
+- Values entered in the UI override server defaults for the current browser session only.

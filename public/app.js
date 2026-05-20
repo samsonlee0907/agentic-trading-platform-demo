@@ -518,6 +518,14 @@ function setStatus(target, message) {
   target.textContent = message;
 }
 
+function updateHealthBadge(health) {
+  if (health?.hasServerKey || health?.hasProjectEndpoint) {
+    elements.healthBadge.textContent = "Foundry connection configured";
+    return;
+  }
+  elements.healthBadge.textContent = "Local demo mode";
+}
+
 function humanizeUnfilledReason(reason) {
   const labels = {
     invalid_order: "invalid order shape",
@@ -1550,9 +1558,7 @@ async function bootstrap() {
   state.samplePortfolio = bootstrapData.samplePortfolio;
   state.sampleNews = bootstrapData.sampleNews;
 
-  elements.healthBadge.textContent = health.hasServerKey
-    ? "Server env key detected"
-    : "No server key loaded";
+  updateHealthBadge(health);
 
   elements.projectEndpoint.value = bootstrapData.defaults.projectEndpoint || "";
   elements.deployment.value = bootstrapData.defaults.deployment || "";
@@ -1869,6 +1875,6 @@ elements.chatInput.addEventListener("keydown", (event) => {
 });
 
 bootstrap().catch((error) => {
-  elements.healthBadge.textContent = "Bootstrap failed";
+  elements.healthBadge.textContent = "App unavailable";
   setStatus(elements.connectionStatus, error.message);
 });
