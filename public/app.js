@@ -468,6 +468,29 @@ function setStatus(target, message) {
   target.textContent = message;
 }
 
+function countMatches(text, pattern) {
+  const matches = String(text || "").match(pattern);
+  return matches ? matches.length : 0;
+}
+
+function getSelectedNewsArticles() {
+  return state.sampleNews.filter((article) => state.selectedNewsIds.has(article.id));
+}
+
+function buildNewsCorpus() {
+  const selectedArticles = getSelectedNewsArticles();
+  const snippets = [
+    ...selectedArticles.map((article) => `${article.title} ${article.summary} ${article.market_impact} ${article.body}`),
+    state.freeformNews
+  ].filter(Boolean);
+
+  return {
+    selectedArticles,
+    snippets,
+    joined: snippets.join(" ").toLowerCase()
+  };
+}
+
 function hasFoundryConfig() {
   const endpoint = (state.config.projectEndpoint || state.defaults?.projectEndpoint || "").trim();
   const key = (state.config.apiKey || "").trim() || Boolean(state.defaults?.hasServerKey);
@@ -475,83 +498,287 @@ function hasFoundryConfig() {
 }
 
 function inferNewsBias() {
-  const selectedArticles = state.sampleNews.filter((article) => state.selectedNewsIds.has(article.id));
-  const joined = [
-    ...selectedArticles.map((article) => `${article.title} ${article.summary} ${article.market_impact} ${article.body}`),
-    state.freeformNews
-  ].join(" ").toLowerCase();
+  const { selectedArticles, joined } = buildNewsCorpus();
+  const aiScore = countMatches(joined, /ai|capex|compute|semiconductor|cloud|infrastructure|hyperscaler|gpu|datacenter|silicon|networking/g);
+  const oilScore = countMatches(joined, /oil|opec|energy|brent|crude|shipping disruption|supply disruption/g);
+  const inflationScore = countMatches(joined, /inflation|yield|treasury|higher-for-longer|rates|fed/g);
+  const regulatoryScore = countMatches(joined, /antitrust|regulator|dominance|investigation|probe|fine|policy risk/g);
+  const positiveScore = countMatches(joined, /supportive|constructive|growth|winner|benefit|resilient|strong|bullish|expand|leadership/g);
+  const negativeScore = countMatches(joined, /risk|pressure|negative|bearish|overhang|stress|sticky|caution|disruption|slower/g);
 
-  const aiPositive = /ai|capex|compute|semiconductor|cloud|infrastructure|hyperscaler/.test(joined);
-  const oilInflation = /oil|opec|energy|inflation|yield|treasury|higher-for-longer/.test(joined);
-  const regulatory = /antitrust|regulator|dominance|investigation|probe/.test(joined);
+  const aiPositive = aiScore >= 2;
+  const oilInflation = oilScore + inflationScore >= 2;
+  const regulatory = regulatoryScore >= 1;
 
   return {
     aiPositive,
     oilInflation,
     regulatory,
+    aiScore,
+    oilScore,
+    inflationScore,
+    regulatoryScore,
+    positiveScore,
+    negativeScore,
+    selectedArticles,
     joined
   };
 }
 
+function analyzeNewsLocally(portfolio = state.portfolio) {
+  const bias = inferNewsBias();
+  const articleCount = bias.selectedArticles.length;
+  const positiveTilt = bias.aiScore * 0.2 + bias.positiveScore * 0.05;
+  const negativeTilt = (bias.oilScore + bias.inflationScore) * 0.12 + bias.regulatoryScore * 0.18 + bias.negativeScore * 0.04;
+  const netScore = positiveTilt - negativeTilt;
+
+  let sentiment = "mixed";
+  if (netScore >= 0.32) {
+    sentiment = "bullish";
+  } else if (netScore <= -0.22) {
+    sentiment = "bearish";
+  }
+
+  const themes = [];
+  if (bias.aiPositive) {
+    themes.push("AI capex remains supportive for compute, cloud, and networking leaders");
+  }
+  if (bias.oilScore || bias.inflationScore) {
+    themes.push("oil and yield pressure keep inflation hedges and rate discipline relevant");
+  }
+  if (bias.regulatory) {
+    themes.push("regulatory headlines argue for lighter sizing in platform-heavy positions");
+  }
+  if (!themes.length) {
+    themes.push("headline flow is balanced, so the desk leans on portfolio structure and concentration control");
+  }
+
+  const impactedSymbols = portfolio
+    .filter((holding) => {
+      const symbol = holding.symbol;
+      return (
+        (bias.aiPositive && ["NVDA", "MSFT", "AMZN", "GOOGL", "AVGO"].includes(symbol)) ||
+        ((bias.oilScore || bias.inflationScore) && ["XOM", "GLD", "JPM"].includes(symbol)) ||
+        (bias.regulatory && ["GOOGL", "MSFT"].includes(symbol))
+      );
+    })
+    .map((holding) => holding.symbol);
+
+  const summaryPrefix = articleCount
+    ? `${articleCount} selected article${articleCount === 1 ? "" : "s"}`
+    : "No selected sample articles";
+  const customSuffix = state.freeformNews ? " plus custom news" : "";
+  const summary = `${summaryPrefix}${customSuffix} suggest a ${sentiment} but selective backdrop. ${themes.join(". ")}.`;
+  const confidence = clamp(
+    0.46
+      + Math.min(0.18, articleCount * 0.05)
+      + Math.min(0.14, (bias.aiScore + bias.oilScore + bias.inflationScore + bias.regulatoryScore) * 0.025)
+      + Math.min(0.12, Math.abs(netScore) * 0.22),
+    0.45,
+    0.88
+  );
+
+  return {
+    sentiment,
+    confidence: Number(confidence.toFixed(2)),
+    summary,
+    themes,
+    impactedSymbols
+  };
+}
+
+function formatNewsAnalysis(analysis) {
+  if (!analysis) {
+    return "No news analysis yet.";
+  }
+
+  const symbols = analysis.impactedSymbols?.length
+    ? ` Impacted: ${analysis.impactedSymbols.join(", ")}.`
+    : "";
+  return `${analysis.sentiment || "mixed"} · conf ${fmtNumber(analysis.confidence || 0, 2)} · ${analysis.summary || ""}${symbols}`;
+}
+
 function buildFallbackOrders(portfolio, settings) {
   const bias = inferNewsBias();
+  const analysis = analyzeNewsLocally(portfolio);
+  const summary = portfolioSummary(portfolio, state.cash);
+  const totalEquity = Math.max(summary.totalEquity, 1);
+  const holdings = portfolio
+    .filter((item) => item.symbol && Number.isFinite(item.price) && item.price > 0)
+    .map((item) => {
+      const marketValue = item.quantity * item.price;
+      return {
+        ...item,
+        marketValue,
+        weight: marketValue / totalEquity
+      };
+    });
+  const symbolMap = new Map(holdings.map((item) => [item.symbol, item]));
+  const signalMap = new Map();
+  const positiveGroups = {
+    ai: new Set(["NVDA", "MSFT", "AMZN", "GOOGL", "AVGO"]),
+    hedge: new Set(["XOM", "GLD"]),
+    rate: new Set(["JPM"]),
+    platform: new Set(["GOOGL", "MSFT"])
+  };
+
+  function addSignal(symbol, score, reason) {
+    const holding = symbolMap.get(symbol);
+    if (!holding) {
+      return;
+    }
+
+    const current = signalMap.get(symbol) || { holding, score: 0, reasons: [] };
+    current.score += score;
+    current.reasons.push(reason);
+    signalMap.set(symbol, current);
+  }
+
+  for (const holding of holdings) {
+    const { symbol, weight } = holding;
+
+    if (bias.aiPositive && positiveGroups.ai.has(symbol)) {
+      const aiBoost = symbol === "NVDA" ? 1.35 : symbol === "AVGO" ? 1.05 : 0.92;
+      addSignal(symbol, aiBoost, "AI capex headlines still favor infrastructure-heavy exposure");
+    }
+
+    if (bias.oilScore || bias.inflationScore) {
+      if (positiveGroups.hedge.has(symbol)) {
+        addSignal(symbol, 1.05, "Energy and gold improve the macro hedge if oil and yields stay elevated");
+      }
+      if (positiveGroups.rate.has(symbol)) {
+        addSignal(symbol, 0.74, "Higher-for-longer rates can support money-center bank earnings power");
+      }
+      if (positiveGroups.ai.has(symbol) && !positiveGroups.hedge.has(symbol)) {
+        addSignal(symbol, -0.24, "Higher yields argue for smaller adds in long-duration growth");
+      }
+    }
+
+    if (bias.regulatory && symbol === "GOOGL") {
+      addSignal(symbol, -1.08, "Platform regulation adds policy risk and trims near-term conviction");
+    }
+    if (bias.regulatory && symbol === "MSFT") {
+      addSignal(symbol, -0.42, "Software dominance scrutiny argues for disciplined sizing, not a hard exit");
+    }
+
+    if (weight > 0.18) {
+      addSignal(symbol, -0.28, "The name is already one of the portfolio's largest lines");
+    } else if (weight < 0.085 && signalMap.get(symbol)?.score > 0) {
+      addSignal(symbol, 0.18, "The position is relatively light versus the rest of the book");
+    }
+  }
+
+  const candidates = [...signalMap.values()]
+    .sort((left, right) => Math.abs(right.score) - Math.abs(left.score))
+    .slice(0, Math.max(settings.maxOrders * 2, 6));
+
   const orders = [];
-  const symbols = new Set(portfolio.map((item) => item.symbol));
-  const availableCash = Math.max(0, state.cash);
+  let buyBudget = Math.max(0, state.cash) * (settings.riskLevel >= 7 ? 0.52 : 0.38);
 
-  function pushOrder(symbol, side, confidence, rationale) {
-    if (!symbols.has(symbol) || orders.length >= settings.maxOrders) {
-      return;
+  function buildSlice(quantity, estimatedNotional) {
+    if (settings.orderSlicing === "off") {
+      return { pieces: 1, interval_seconds: 0 };
     }
 
-    const holding = portfolio.find((item) => item.symbol === symbol);
-    if (!holding || !Number.isFinite(holding.price) || holding.price <= 0) {
-      return;
+    if (estimatedNotional >= 40000 || quantity >= 120) {
+      return { pieces: 4, interval_seconds: 60 };
+    }
+    if (estimatedNotional >= 18000 || quantity >= 60) {
+      return { pieces: 3, interval_seconds: 45 };
+    }
+    return { pieces: 2, interval_seconds: 30 };
+  }
+
+  for (const candidate of candidates) {
+    if (orders.length >= settings.maxOrders) {
+      break;
     }
 
-    const baseQty = side === "buy"
-      ? Math.max(5, Math.floor((availableCash * (0.035 + confidence * 0.03)) / holding.price))
-      : Math.max(5, Math.floor(Math.abs(holding.quantity) * (0.08 + confidence * 0.08)));
+    const conviction = Math.abs(candidate.score);
+    if (conviction < 0.28) {
+      continue;
+    }
 
-    const quantity = Math.max(1, baseQty);
+    const side = candidate.score >= 0 ? "buy" : "sell";
+    const baseNotional = totalEquity * clamp(0.008 + conviction * 0.013, 0.008, 0.03);
+    let targetNotional = baseNotional;
+
+    if (side === "buy") {
+      targetNotional = Math.min(targetNotional, buyBudget);
+    } else {
+      targetNotional = Math.min(targetNotional, Math.abs(candidate.holding.marketValue) * 0.16);
+    }
+
+    if (targetNotional <= 0) {
+      continue;
+    }
+
+    const quantity = Math.floor(targetNotional / candidate.holding.price);
+    if (quantity < 1) {
+      continue;
+    }
+
+    const estimatedNotional = quantity * candidate.holding.price;
+    if (side === "buy") {
+      buyBudget = Math.max(0, buyBudget - estimatedNotional);
+    }
+
     orders.push({
-      symbol,
+      symbol: candidate.holding.symbol,
       side,
       quantity,
       type: "limit",
-      limit_price: Number((holding.price * (side === "buy" ? 0.998 : 1.002)).toFixed(2)),
-      urgency: confidence > 0.68 ? "high" : confidence > 0.52 ? "medium" : "low",
-      slice: settings.orderSlicing === "off"
-        ? { pieces: 1, interval_seconds: 0 }
-        : { pieces: quantity > 60 ? 3 : 2, interval_seconds: quantity > 60 ? 45 : 30 },
-      rationale
+      limit_price: Number((candidate.holding.price * (side === "buy" ? 0.9985 : 1.0015)).toFixed(2)),
+      urgency: conviction >= 1 ? "high" : conviction >= 0.55 ? "medium" : "low",
+      slice: buildSlice(quantity, estimatedNotional),
+      rationale: candidate.reasons.slice(0, 2).join(". ")
     });
   }
 
-  if (bias.aiPositive) {
-    pushOrder("NVDA", "buy", 0.82, "AI capex tone remains supportive for core compute exposure.");
-    pushOrder("MSFT", "buy", 0.7, "Enterprise AI platform strength supports incremental cloud exposure.");
-    pushOrder("AVGO", "buy", 0.64, "Custom silicon and networking exposure benefits from infrastructure demand.");
-  }
-
-  if (bias.oilInflation) {
-    pushOrder("XOM", "buy", 0.76, "Energy acts as an inflation and supply-risk hedge.");
-    pushOrder("JPM", "buy", 0.58, "Higher-rate backdrop can support large-cap financial resilience.");
-  }
-
-  if (bias.regulatory) {
-    pushOrder("GOOGL", "sell", 0.55, "Regulatory pressure trims conviction for internet platform risk.");
-    pushOrder("MSFT", "sell", 0.46, "Policy scrutiny argues for position discipline rather than a full exit.");
-  }
-
   if (!orders.length) {
-    const first = portfolio[0];
+    const first = holdings[0];
     if (first) {
-      pushOrder(first.symbol, first.quantity >= 0 ? "buy" : "sell", 0.5, "Local demo fallback rebalances the lead position conservatively.");
+      const quantity = Math.max(1, Math.floor((totalEquity * 0.01) / first.price));
+      orders.push({
+        symbol: first.symbol,
+        side: "buy",
+        quantity,
+        type: "limit",
+        limit_price: Number((first.price * 0.999).toFixed(2)),
+        urgency: "low",
+        slice: buildSlice(quantity, quantity * first.price),
+        rationale: "No dominant headline shock was detected, so the local desk keeps a small rebalance into the lead conviction name."
+      });
     }
   }
 
-  return orders.slice(0, settings.maxOrders);
+  let strategy = "core_rebalance";
+  let rationale = "The local desk is rebalancing core positions while keeping turnover contained.";
+
+  if (bias.aiPositive && (bias.oilInflation || bias.regulatory)) {
+    strategy = "barbell_rebalance";
+    rationale = "The local desk adds to AI infrastructure strength while keeping hedges and trimming policy-sensitive concentration.";
+  } else if (bias.aiPositive) {
+    strategy = "accumulate_ai_leaders";
+    rationale = "The local desk leans into AI infrastructure leadership with measured adds to core compute and cloud exposure.";
+  } else if (bias.oilInflation) {
+    strategy = "rotate_to_hedges";
+    rationale = "The local desk rotates toward energy, gold, and rate beneficiaries while reducing stretch in duration-sensitive growth.";
+  } else if (bias.regulatory) {
+    strategy = "trim_policy_risk";
+    rationale = "The local desk trims platform-policy risk and reallocates toward steadier quality exposure already in the book.";
+  }
+
+  if (analysis.sentiment === "bearish" && !bias.aiPositive) {
+    strategy = "defensive_rebalance";
+    rationale = "Headline flow is skewing defensive, so the local desk prefers hedges, quality, and smaller order sizes.";
+  }
+
+  return {
+    strategy,
+    rationale,
+    orders: orders.slice(0, settings.maxOrders)
+  };
 }
 
 function buildFallbackDeskOutput() {
@@ -559,6 +786,7 @@ function buildFallbackDeskOutput() {
   const portfolio = state.portfolio;
   const settings = state.settings;
   const bias = inferNewsBias();
+  const news = analyzeNewsLocally(portfolio);
 
   const techSignals = portfolio.slice(0, 6).map((holding, index) => {
     let signal = index % 2 === 0 ? "bullish" : "neutral";
@@ -584,30 +812,28 @@ function buildFallbackDeskOutput() {
     };
   });
 
-  const orders = buildFallbackOrders(portfolio, settings);
+  const traderPlan = buildFallbackOrders(portfolio, settings);
 
   return {
     market_view: {
-      regime: bias.oilInflation ? "mixed" : bias.aiPositive ? "risk_on" : "mixed",
+      regime: bias.aiPositive && !bias.oilInflation ? "risk_on" : bias.oilInflation || bias.regulatory ? "barbell" : "mixed",
       key_drivers: [
-        bias.aiPositive ? "AI infrastructure spending remains a primary equity driver." : "AI leadership remains important but less explicit in the tape.",
-        bias.oilInflation ? "Oil and yield pressure keep macro hedges relevant." : "Macro pressure is manageable in the fallback view.",
-        bias.regulatory ? "Large-cap platform regulation is a live sentiment drag." : "Regulatory pressure is not the dominant fallback signal."
+        bias.aiPositive ? "AI infrastructure spending remains a primary equity driver." : "AI leadership matters, but headline support is less forceful right now.",
+        bias.oilInflation ? "Oil and yield pressure keep macro hedges relevant." : "Macro pressure is present but not dominant in the local read.",
+        bias.regulatory ? "Large-cap platform regulation is a live sentiment drag." : "Policy headlines are not the main local driver."
       ],
-      confidence: 0.64
+      confidence: Math.max(0.56, news.confidence)
     },
     agents: {
       fundamental: {
         summary: bias.aiPositive
-          ? "The fundamental backdrop still favors AI compute, cloud, and infrastructure leaders."
-          : "The fallback desk keeps a balanced view and leans on existing portfolio leaders.",
-        confidence: 0.67
+          ? "The fundamental backdrop still favors AI compute, cloud, and infrastructure leaders, but sizing should respect rate and policy cross-currents."
+          : "The local desk keeps a balanced fundamental view and leans on existing portfolio leaders plus hedges.",
+        confidence: Math.max(0.61, news.confidence - 0.02)
       },
       sentiment: {
-        summary: bias.oilInflation
-          ? "Macro sentiment is split: supportive for hedges and energy, less friendly for duration-heavy growth."
-          : "Sentiment is constructive with selective caution around crowded names.",
-        confidence: 0.62
+        summary: news.summary,
+        confidence: news.confidence
       },
       technical: {
         summary: "Local fallback technical view derived from portfolio leaders and current news bias.",
@@ -620,19 +846,19 @@ function buildFallbackDeskOutput() {
           max_gross_exposure_pct: 135,
           stop_loss_pct: 6
         },
-        notes: "Fallback desk keeps sizing moderate and prefers sliced orders for larger tickets.",
+        notes: "The local desk keeps sizing moderate, trims oversized lines first, and prefers sliced orders for larger tickets.",
         confidence: 0.74
       }
     },
     trader: {
-      strategy: bias.oilInflation ? "risk_reduction" : settings.strategy || "multi_agent",
-      orders,
-      rationale: orders.length
-        ? "Fallback demo proposal generated locally because a full Foundry trader decision was not available."
-        : "No actionable fallback order generated."
+      strategy: traderPlan.strategy,
+      orders: traderPlan.orders,
+      rationale: traderPlan.orders.length
+        ? traderPlan.rationale
+        : "No actionable order was generated from the current portfolio and news mix."
     },
     meta: {
-      confidence: 0.61,
+      confidence: news.confidence,
       horizon_minutes: settings.horizonMinutes
     }
   };
@@ -997,21 +1223,41 @@ async function runDeskFlow(prefix = "") {
 
   const payload = collectPayload();
   const data = await apiFetch("/api/desk/run", payload);
-  state.latestDeskOutput = data.parsed || buildFallbackDeskOutput();
-  const orders = state.latestDeskOutput?.trader?.orders?.length
-    ? state.latestDeskOutput.trader.orders
-    : buildFallbackDeskOutput().trader.orders;
+  const fallbackOutput = buildFallbackDeskOutput();
+  const liveOutput = data.parsed;
+  const hasLiveOrders = Array.isArray(liveOutput?.trader?.orders) && liveOutput.trader.orders.length > 0;
+
+  state.latestDeskOutput = liveOutput
+    ? {
+      ...fallbackOutput,
+      ...liveOutput,
+      agents: {
+        ...fallbackOutput.agents,
+        ...(liveOutput.agents || {})
+      },
+      trader: hasLiveOrders
+        ? { ...fallbackOutput.trader, ...liveOutput.trader }
+        : fallbackOutput.trader,
+      market_view: { ...fallbackOutput.market_view, ...(liveOutput.market_view || {}) },
+      meta: { ...fallbackOutput.meta, ...(liveOutput.meta || {}) }
+    }
+    : fallbackOutput;
 
   state.proposal = {
-    orders,
-    rationale: state.latestDeskOutput?.trader?.rationale || "Fallback proposal used because the live desk returned no orders."
+    orders: state.latestDeskOutput?.trader?.orders || [],
+    rationale: state.latestDeskOutput?.trader?.rationale || fallbackOutput.trader.rationale
   };
   renderAgentCards();
   renderProposal();
   if (state.charts.autoUpdate) {
     renderChart();
   }
-  setStatus(elements.deskStatus, `${prefix}Desk run complete via ${data.transport}.`);
+  setStatus(
+    elements.deskStatus,
+    hasLiveOrders
+      ? `${prefix}Desk run complete via ${data.transport}.`
+      : `${prefix}Desk run complete via ${data.transport}; local trader proposal filled in missing execution logic.`
+  );
 }
 
 async function bootstrap() {
@@ -1134,17 +1380,28 @@ elements.pingButton.addEventListener("click", async () => {
 });
 
 elements.analyzeNewsButton.addEventListener("click", async () => {
+  syncStateFromInputs();
+  elements.newsAnalysis.textContent = "Analyzing selected and custom news...";
   try {
     setStatus(elements.deskStatus, "Analyzing news...");
+    if (!hasFoundryConfig()) {
+      state.newsAnalysis = analyzeNewsLocally(state.portfolio);
+      elements.newsAnalysis.textContent = formatNewsAnalysis(state.newsAnalysis);
+      setStatus(elements.deskStatus, "News analyzed via local demo engine. Add Foundry config for live model analysis.");
+      return;
+    }
+
     const payload = collectPayload();
     const data = await apiFetch("/api/news/analyze", payload);
-    state.newsAnalysis = data.parsed;
+    state.newsAnalysis = data.parsed || analyzeNewsLocally(state.portfolio);
     elements.newsAnalysis.textContent = data.parsed
-      ? `${data.parsed.sentiment || "neutral"} · conf ${fmtNumber(data.parsed.confidence || 0, 2)} · ${data.parsed.summary || ""}`
-      : data.rawText;
+      ? formatNewsAnalysis(data.parsed)
+      : formatNewsAnalysis(state.newsAnalysis);
     setStatus(elements.deskStatus, `News analyzed via ${data.transport}.`);
   } catch (error) {
-    setStatus(elements.deskStatus, error.message);
+    state.newsAnalysis = analyzeNewsLocally(state.portfolio);
+    elements.newsAnalysis.textContent = formatNewsAnalysis(state.newsAnalysis);
+    setStatus(elements.deskStatus, `News API unavailable. Showing local analysis instead. ${error.message}`);
   }
 });
 
