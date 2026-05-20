@@ -2,6 +2,24 @@
 
 Agentic Trading Platform Demo is a lightweight multi-agent trading desk simulator built around Microsoft Foundry project endpoints. It combines a browser UI, a small Node backend, GPT-5-series compatibility, local execution simulation, and demo-ready portfolio and news fixtures for showcasing an end-to-end agentic trading workflow.
 
+## Screenshots
+
+Store platform screenshots in `img/` and replace the placeholders below when you are ready to publish them.
+
+Suggested image slots:
+
+- `img/platform-overview.png`
+- `img/news-and-proposal.png`
+- `img/desk-chat.png`
+
+Markdown template:
+
+```md
+![Platform overview](img/platform-overview.png)
+![News and proposal flow](img/news-and-proposal.png)
+![Desk chat](img/desk-chat.png)
+```
+
 ## Features
 
 - Microsoft Foundry project endpoint support with server-side API calls
@@ -22,20 +40,19 @@ Agentic Trading Platform Demo is a lightweight multi-agent trading desk simulato
 - `data/`: sample portfolio and sample news fixtures
 - `tests/`: lightweight Node test coverage for Foundry parsing and execution behavior
 
-## Quick start
+## Prerequisites
 
-1. Install Node.js 20 or newer.
-2. Copy `.env.example` to `.env`.
-3. Set your Foundry values.
-4. Start the app.
+Before configuring the app, make sure you have:
 
-```bash
-npm start
-```
+- Node.js 20 or newer
+- a Microsoft Foundry project endpoint
+- an API key that can access that Foundry project
+- a deployed model in the project that you want this app to call
+- a local `.env` file created from `.env.example`
 
-5. Open `http://127.0.0.1:3000`.
+### Configure `.env`
 
-## Environment
+Copy `.env.example` to `.env`, then fill in the required values:
 
 ```text
 FOUNDRY_PROJECT_ENDPOINT=https://<resource>.services.ai.azure.com/api/projects/<project-name>
@@ -53,6 +70,14 @@ PORT=3000
 ```
 
 The server appends `/openai/v1` to the project endpoint automatically.
+
+### Start the app
+
+```bash
+npm start
+```
+
+Then open `http://127.0.0.1:3000`.
 
 ## Local demo mode
 
