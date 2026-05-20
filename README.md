@@ -63,21 +63,6 @@ npm start
 
 Then open `http://127.0.0.1:3000`.
 
-## Local demo mode
-
-The app remains usable even without a configured API key or Foundry project endpoint. In local demo mode it can:
-
-- load the sample portfolio
-- load parked sample news on demand
-- analyze selected news locally
-- generate fallback trader proposals
-- respond in desk chat with local agent logic
-- simulate order execution and update charts
-
-This makes the repository easier to share publicly without shipping secrets.
-
-![News and proposal flow](img/news-and-proposal.png)
-
 ## Scripts
 
 - `npm start`: run the local server
@@ -91,6 +76,7 @@ This makes the repository easier to share publicly without shipping secrets.
 2. Load sample news or add a custom market headline.
 3. Click `Analyze news`.
 4. Click `Run desk` to generate agent output and a trader proposal.
+![News and proposal flow](img/news-and-proposal.png)
 5. Execute the proposal from the blotter or directly from desk chat.
 6. Review simulated fills, updated holdings, and chart projections.
 
