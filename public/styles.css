@@ -81,7 +81,9 @@ h2 {
 .status-line,
 .callout,
 .hero-badge span,
-label span {
+label span,
+.footer-note,
+.empty-state {
   color: var(--muted);
 }
 
@@ -115,7 +117,7 @@ label span {
 
 .panel-head p {
   margin: 0.25rem 0 0;
-  max-width: 45rem;
+  max-width: 48rem;
 }
 
 .layout-two {
@@ -133,6 +135,14 @@ label span {
 .form-grid.compact {
   grid-template-columns: repeat(6, minmax(0, 1fr));
   margin-bottom: 1rem;
+}
+
+.form-grid.compact.trio {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.chart-controls {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 label,
@@ -249,6 +259,13 @@ textarea {
   gap: 0.8rem;
 }
 
+.empty-state {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px dashed rgba(149, 164, 191, 0.22);
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .news-card,
 .agent-card {
   border: 1px solid rgba(149, 164, 191, 0.14);
@@ -274,12 +291,75 @@ textarea {
 .tag {
   display: inline-flex;
   align-items: center;
+  gap: 0.35rem;
   padding: 0.22rem 0.5rem;
   border-radius: 999px;
   background: rgba(99, 210, 255, 0.08);
   color: var(--accent);
   font-size: 0.75rem;
   border: 1px solid rgba(99, 210, 255, 0.18);
+}
+
+.agent-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.agent-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.35rem;
+  background: var(--agent-color, var(--accent));
+}
+
+.agent-header {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.agent-icon {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  color: var(--agent-color, var(--accent));
+  background: color-mix(in srgb, var(--agent-color, var(--accent)) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--agent-color, var(--accent)) 30%, rgba(255,255,255,0.08));
+}
+
+.agent-card p {
+  margin: 0.7rem 0 0;
+  line-height: 1.55;
+}
+
+.agent-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 0.9rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.confidence-bar {
+  margin-top: 0.65rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.confidence-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--agent-color, var(--accent)) 60%, white), var(--agent-color, var(--accent)));
 }
 
 .callout {
@@ -310,6 +390,52 @@ pre {
   padding: 1rem;
   background: rgba(3, 7, 18, 0.62);
   border: 1px solid rgba(149, 164, 191, 0.14);
+}
+
+.chart-wrap {
+  background: rgba(3, 7, 18, 0.62);
+  border: 1px solid rgba(149, 164, 191, 0.14);
+  border-radius: 1rem;
+  padding: 0.6rem;
+}
+
+#priceChart {
+  width: 100%;
+  height: 320px;
+  display: block;
+  border-radius: 0.8rem;
+  background: linear-gradient(180deg, rgba(6, 12, 24, 0.9), rgba(10, 18, 34, 0.98));
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(149, 164, 191, 0.16);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.legend-dot {
+  width: 0.95rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.legend-dot.dashed {
+  background: transparent;
+  border: 2px dashed currentColor;
 }
 
 .chat-window {
@@ -356,11 +482,19 @@ pre {
   margin-top: 0.9rem;
 }
 
+.footer-note {
+  text-align: center;
+  font-size: 0.82rem;
+  margin-top: 1.1rem;
+}
+
 @media (max-width: 1080px) {
   .layout-two,
   .form-grid,
   .form-grid.compact,
-  .metric-grid {
+  .metric-grid,
+  .chart-controls,
+  .form-grid.compact.trio {
     grid-template-columns: 1fr;
   }
 

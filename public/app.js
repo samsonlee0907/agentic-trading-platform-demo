@@ -2,6 +2,7 @@ const state = {
   defaults: null,
   samplePortfolio: null,
   sampleNews: [],
+  sampleNewsVisible: false,
   config: {
     projectEndpoint: "",
     deployment: "",
@@ -30,7 +31,16 @@ const state = {
   latestDeskOutput: null,
   proposal: null,
   trades: [],
-  chatHistory: []
+  chatHistory: [],
+  history: {},
+  ticks: 0,
+  charts: {
+    selectedSymbol: "",
+    historyPoints: 90,
+    projectionMinutes: 120,
+    noiseLevel: "medium",
+    autoUpdate: true
+  }
 };
 
 const elements = {
@@ -40,6 +50,8 @@ const elements = {
   newsAnalysis: document.getElementById("newsAnalysis"),
   rawOutput: document.getElementById("rawOutput"),
   proposalSummary: document.getElementById("proposalSummary"),
+  chartStatus: document.getElementById("chartStatus"),
+  chartLegend: document.getElementById("chartLegend"),
   projectEndpoint: document.getElementById("projectEndpoint"),
   deployment: document.getElementById("deployment"),
   apiKey: document.getElementById("apiKey"),
@@ -69,9 +81,28 @@ const elements = {
   pingButton: document.getElementById("pingButton"),
   loadSampleButton: document.getElementById("loadSampleButton"),
   addRowButton: document.getElementById("addRowButton"),
+  loadSampleNewsButton: document.getElementById("loadSampleNewsButton"),
+  clearNewsButton: document.getElementById("clearNewsButton"),
   analyzeNewsButton: document.getElementById("analyzeNewsButton"),
   runDeskButton: document.getElementById("runDeskButton"),
-  sendChatButton: document.getElementById("sendChatButton")
+  nextTickButton: document.getElementById("nextTickButton"),
+  sendChatButton: document.getElementById("sendChatButton"),
+  renderChartButton: document.getElementById("renderChartButton"),
+  autoUpdateChartButton: document.getElementById("autoUpdateChartButton"),
+  chartSymbol: document.getElementById("chartSymbol"),
+  historyPoints: document.getElementById("historyPoints"),
+  projectionMinutes: document.getElementById("projectionMinutes"),
+  noiseLevel: document.getElementById("noiseLevel"),
+  priceChart: document.getElementById("priceChart")
+};
+
+const AGENT_META = {
+  market: { title: "Market View", icon: "fi fi-br-algorithm", color: "#7dd3fc" },
+  fundamental: { title: "Fundamental", icon: "fi fi-br-analytics", color: "#63d2ff" },
+  sentiment: { title: "Sentiment", icon: "fi fi-sr-messages", color: "#f472b6" },
+  technical: { title: "Technical", icon: "fi fi-rr-stats", color: "#a78bfa" },
+  risk: { title: "Risk Manager", icon: "fi fi-sr-shield", color: "#f59e0b" },
+  trader: { title: "Trader", icon: "fi fi-ts-trading", color: "#5fe1a3" }
 };
 
 function fmtCurrency(value) {
@@ -100,6 +131,19 @@ function escapeHtml(value) {
 
 function escapeWithBreaks(value) {
   return escapeHtml(value).replaceAll("\n", "<br>");
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function colorForSym(symbol) {
+  const palette = ["#63d2ff", "#5fe1a3", "#ffcf73", "#ff8b7c", "#a78bfa", "#f472b6", "#22d3ee", "#84cc16"];
+  let hash = 0;
+  for (const char of String(symbol || "")) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return palette[hash % palette.length];
 }
 
 function portfolioSummary(portfolio, cash) {
@@ -150,6 +194,10 @@ function syncStateFromInputs() {
     slippageBps: Number(elements.slippageBps.value || 0)
   };
   state.freeformNews = elements.freeformNews.value.trim();
+  state.charts.historyPoints = Number(elements.historyPoints.value || 90);
+  state.charts.projectionMinutes = Number(elements.projectionMinutes.value || 120);
+  state.charts.noiseLevel = elements.noiseLevel.value;
+  state.charts.selectedSymbol = elements.chartSymbol.value;
 }
 
 async function apiFetch(path, payload) {
@@ -166,6 +214,65 @@ async function apiFetch(path, payload) {
     throw new Error(data.error || "Request failed.");
   }
   return data;
+}
+
+function ensureHistoryForHolding(symbol, price) {
+  if (!symbol || !Number.isFinite(price) || price <= 0) {
+    return;
+  }
+
+  const normalized = String(symbol).toUpperCase();
+  if (state.history[normalized]?.length) {
+    return;
+  }
+
+  const points = [];
+  let current = price;
+  for (let index = 0; index < 72; index += 1) {
+    const drift = 0.00015 * Math.sin(index / 8);
+    const noise = (Math.random() - 0.5) * 0.0035;
+    current *= 1 + drift + noise;
+    points.push({ x: index, price: current });
+  }
+  state.history[normalized] = points;
+}
+
+function syncHistoryFromPortfolio() {
+  for (const holding of state.portfolio) {
+    ensureHistoryForHolding(holding.symbol, Number(holding.price));
+  }
+}
+
+function getLastPrice(symbol) {
+  const normalized = String(symbol || "").toUpperCase();
+  const history = state.history[normalized];
+  if (history?.length) {
+    return Number(history[history.length - 1].price);
+  }
+  const holding = state.portfolio.find((item) => item.symbol === normalized);
+  return holding ? Number(holding.price) : null;
+}
+
+function advanceSyntheticMarketTick() {
+  syncStateFromInputs();
+  state.ticks += 1;
+
+  for (const holding of state.portfolio) {
+    const symbol = holding.symbol;
+    const history = state.history[symbol] || [];
+    const previous = history.length ? Number(history[history.length - 1].price) : Number(holding.price) || 100;
+    const influence = getAgentInfluence(symbol);
+    const macro = (Math.random() - 0.5) * 0.003;
+    const agentDrift = influence.dir * 0.001 * influence.strength;
+    const nextPrice = previous * (1 + macro + agentDrift);
+    holding.price = Number(nextPrice.toFixed(2));
+
+    history.push({
+      x: history.length ? history[history.length - 1].x + 1 : 0,
+      price: holding.price
+    });
+    state.history[symbol] = history.slice(-240);
+  }
 }
 
 function renderPortfolio() {
@@ -198,9 +305,21 @@ function renderPortfolio() {
       </div>
     `;
   }).join("");
+
+  syncHistoryFromPortfolio();
+  updateChartSymbols();
 }
 
 function renderNews() {
+  if (!state.sampleNewsVisible) {
+    elements.newsCards.innerHTML = `
+      <div class="empty-state">
+        No sample news loaded. Use <b>Load sample news</b> to display the parked articles, or type your own new market news below.
+      </div>
+    `;
+    return;
+  }
+
   elements.newsCards.innerHTML = state.sampleNews.map((article) => {
     const selected = state.selectedNewsIds.has(article.id);
     return `
@@ -222,20 +341,45 @@ function renderNews() {
   }).join("");
 }
 
+function buildAgentCard(key, title, body, confidence, metaText) {
+  const info = AGENT_META[key] || { title, icon: "fi fi-br-analytics", color: "#63d2ff" };
+  const safeConfidence = clamp(Number(confidence || 0.45), 0.05, 1);
+  return `
+    <article class="agent-card" style="--agent-color:${info.color}">
+      <header class="agent-header">
+        <div class="agent-icon"><i class="${info.icon}"></i></div>
+        <div>
+          <h3>${escapeHtml(title || info.title)}</h3>
+          <div class="tag">${escapeHtml(info.title)}</div>
+        </div>
+      </header>
+      <p>${escapeWithBreaks(body)}</p>
+      <div class="confidence-bar"><span style="width:${safeConfidence * 100}%"></span></div>
+      <div class="agent-meta">
+        <span>conf ${fmtNumber(safeConfidence, 2)}</span>
+        <span>${escapeHtml(metaText || "active")}</span>
+      </div>
+    </article>
+  `;
+}
+
 function renderAgentCards() {
   const parsed = state.latestDeskOutput;
   if (!parsed) {
-    elements.agentCards.innerHTML = `<div class="callout muted">Run the desk to generate analyst output.</div>`;
+    elements.agentCards.innerHTML = `<div class="empty-state">Run the desk to generate agent output and execution recommendations.</div>`;
     elements.rawOutput.textContent = "";
     return;
   }
 
   const cards = [];
   if (parsed.market_view) {
-    cards.push({
-      title: "Market view",
-      body: `${parsed.market_view.regime || "mixed"} · conf ${fmtNumber(parsed.market_view.confidence || 0, 2)}\n${(parsed.market_view.key_drivers || []).join(", ")}`
-    });
+    cards.push(buildAgentCard(
+      "market",
+      "Market view",
+      `${parsed.market_view.regime || "mixed"}\n${(parsed.market_view.key_drivers || []).join(", ")}`,
+      parsed.market_view.confidence,
+      "routing context"
+    ));
   }
 
   for (const key of ["fundamental", "sentiment", "technical", "risk"]) {
@@ -243,37 +387,33 @@ function renderAgentCards() {
     if (!item) {
       continue;
     }
-    cards.push({
-      title: key,
-      body: `${item.summary || item.notes || ""}\nconf ${fmtNumber(item.confidence || 0, 2)}`
-    });
+    const detail = key === "technical" && Array.isArray(item.signals)
+      ? `${item.summary || ""}\nSignals: ${item.signals.map((signal) => `${signal.symbol} ${signal.signal}`).join(", ")}`
+      : `${item.summary || item.notes || ""}`;
+    cards.push(buildAgentCard(key, AGENT_META[key].title, detail, item.confidence, "desk agent"));
   }
 
   if (parsed.trader) {
-    cards.push({
-      title: "trader",
-      body: `${parsed.trader.strategy || "hold"}\n${parsed.trader.rationale || ""}`
-    });
+    const orders = Array.isArray(parsed.trader.orders) ? parsed.trader.orders.length : 0;
+    cards.push(buildAgentCard(
+      "trader",
+      "Trader",
+      `${parsed.trader.strategy || "hold"}\n${parsed.trader.rationale || ""}`,
+      parsed.meta?.confidence || 0.6,
+      `${orders} order${orders === 1 ? "" : "s"}`
+    ));
   }
 
-  elements.agentCards.innerHTML = cards.map((card) => {
-    return `
-      <article class="agent-card">
-        <header>
-          <h3>${escapeHtml(card.title)}</h3>
-          <span class="tag">desk</span>
-        </header>
-        <p>${escapeWithBreaks(card.body)}</p>
-      </article>
-    `;
-  }).join("");
-
+  elements.agentCards.innerHTML = cards.join("");
   elements.rawOutput.textContent = JSON.stringify(parsed, null, 2);
 }
 
 function renderProposal() {
   const orders = state.proposal?.orders || [];
   elements.proposalBody.innerHTML = orders.map((order) => {
+    const sliceText = order.slice
+      ? `${order.slice.pieces || 1}x / ${order.slice.interval_seconds || 0}s`
+      : "";
     return `
       <tr>
         <td>${escapeHtml(order.symbol || "")}</td>
@@ -282,6 +422,8 @@ function renderProposal() {
         <td>${escapeHtml(order.type || "")}</td>
         <td>${order.limit_price == null ? "" : fmtNumber(order.limit_price)}</td>
         <td>${escapeHtml(order.urgency || "")}</td>
+        <td>${escapeHtml(sliceText)}</td>
+        <td>${escapeHtml(order.rationale || state.proposal?.rationale || "")}</td>
       </tr>
     `;
   }).join("");
@@ -335,15 +477,35 @@ function loadSamplePortfolio() {
   }));
   state.cash = sample.cash;
   state.costs = { ...sample.costs };
-  state.selectedNewsIds = new Set(state.sampleNews.slice(0, 3).map((item) => item.id));
-  state.freeformNews = sample.notes;
+  state.history = {};
+  state.trades = [];
+  state.proposal = null;
 
   elements.cash.value = state.cash;
   elements.txnCostBps.value = state.costs.txnCostBps;
   elements.slippageBps.value = state.costs.slippageBps;
-  elements.freeformNews.value = state.freeformNews;
 
   renderPortfolio();
+  renderProposal();
+  renderTrades();
+  if (state.charts.autoUpdate) {
+    renderChart();
+  }
+}
+
+function loadSampleNews() {
+  state.sampleNewsVisible = true;
+  state.selectedNewsIds = new Set();
+  renderNews();
+}
+
+function clearNews() {
+  state.sampleNewsVisible = false;
+  state.selectedNewsIds = new Set();
+  state.freeformNews = "";
+  elements.freeformNews.value = "";
+  state.newsAnalysis = null;
+  elements.newsAnalysis.textContent = "No news analysis yet.";
   renderNews();
 }
 
@@ -360,10 +522,307 @@ function collectPayload() {
   };
 }
 
+function updateChartSymbols() {
+  const symbols = new Set();
+  for (const holding of state.portfolio) {
+    if (holding.symbol) {
+      symbols.add(holding.symbol);
+    }
+  }
+  for (const symbol of Object.keys(state.history)) {
+    symbols.add(symbol);
+  }
+
+  const list = [...symbols];
+  elements.chartSymbol.innerHTML = "";
+  if (!list.length) {
+    elements.chartSymbol.innerHTML = `<option value="">No symbols</option>`;
+    state.charts.selectedSymbol = "";
+    return;
+  }
+
+  for (const symbol of list) {
+    const option = document.createElement("option");
+    option.value = symbol;
+    option.textContent = symbol;
+    elements.chartSymbol.appendChild(option);
+  }
+
+  if (!state.charts.selectedSymbol || !symbols.has(state.charts.selectedSymbol)) {
+    state.charts.selectedSymbol = list[0];
+  }
+  elements.chartSymbol.value = state.charts.selectedSymbol;
+}
+
+function buildHistorySeries(symbol, maxPoints) {
+  const color = colorForSym(symbol);
+  const history = state.history[symbol];
+  const points = [];
+
+  if (history?.length) {
+    const start = Math.max(0, history.length - maxPoints);
+    for (let index = start; index < history.length; index += 1) {
+      points.push({ x: index - start, y: Number(history[index].price) });
+    }
+  } else {
+    const base = getLastPrice(symbol) || 100;
+    let price = base;
+    const count = Math.max(20, Math.min(maxPoints, 80));
+    for (let index = 0; index < count; index += 1) {
+      price *= 1 + 0.0002 * Math.sin(index / 9) + (Math.random() - 0.5) * 0.002;
+      points.push({ x: index, y: price });
+    }
+  }
+
+  return { label: `${symbol} history`, color, dash: [], points };
+}
+
+function getAgentInfluence(symbol) {
+  const agent = state.latestDeskOutput || {};
+  let dir = 0;
+  let strength = 0.35;
+  let confidence = 0.55;
+
+  const technical = agent?.agents?.technical;
+  if (Array.isArray(technical?.signals)) {
+    const signal = technical.signals.find((item) => String(item.symbol).toUpperCase() === symbol.toUpperCase());
+    if (signal) {
+      if (signal.signal === "bullish") {
+        dir += 1;
+      }
+      if (signal.signal === "bearish") {
+        dir -= 1;
+      }
+      strength = Math.max(strength, Number(signal.strength) || 0.35);
+      confidence = Math.max(confidence, Number(technical.confidence) || 0.55);
+    }
+  }
+
+  const orders = agent?.trader?.orders || [];
+  for (const order of orders.filter((item) => item.symbol?.toUpperCase() === symbol.toUpperCase())) {
+    dir += order.side === "buy" ? 0.5 : -0.5;
+    if (order.urgency === "high") {
+      strength += 0.15;
+    }
+  }
+
+  const sentiment = agent?.agents?.sentiment;
+  if (sentiment?.summary) {
+    const summary = String(sentiment.summary).toLowerCase();
+    if (/bull|optim|constructive/.test(summary)) {
+      dir += 0.25;
+    }
+    if (/bear|pess|fragile|weak/.test(summary)) {
+      dir -= 0.25;
+    }
+    confidence = Math.max(confidence, Number(sentiment.confidence) || 0.55);
+  }
+
+  return {
+    dir: clamp(dir, -1, 1),
+    strength: clamp(strength, 0.05, 1),
+    confidence: clamp(confidence, 0.1, 1)
+  };
+}
+
+function computeProjectionSeries(symbol, minutes, noiseLevel) {
+  const last = getLastPrice(symbol) || 100;
+  const { dir, strength, confidence } = getAgentInfluence(symbol);
+  const color = colorForSym(symbol);
+  const riskFactor = state.settings.riskLevel / 10;
+  const baseDrift = dir * 0.0008 * strength * (0.5 + riskFactor / 2);
+  const noiseAmplitude = noiseLevel === "high" ? 0.003 : noiseLevel === "medium" ? 0.0015 : 0.0007;
+
+  const orders = (state.latestDeskOutput?.trader?.orders || []).filter((item) => item.symbol?.toUpperCase() === symbol.toUpperCase());
+  const urgencyBoost = orders.some((item) => item.urgency === "high") ? 0.0006 : 0.0002;
+  const sideBoost = orders.reduce((sum, item) => sum + (item.side === "buy" ? 1 : -1), 0) * urgencyBoost;
+
+  const mid = [];
+  const upper = [];
+  const lower = [];
+  let priceMid = last;
+  const steps = Math.max(10, Math.min(120, minutes));
+
+  for (let index = 0; index <= steps; index += 1) {
+    const micro = index < 5 ? sideBoost * (1 - index / 5) : 0;
+    const drift = baseDrift + micro + (Math.random() - 0.5) * noiseAmplitude;
+    priceMid *= 1 + drift;
+    const band = (0.0008 + 0.0008 * strength) * (1 + index / steps) * (0.5 + confidence / 2);
+    mid.push({ x: index, y: priceMid });
+    upper.push({ x: index, y: priceMid * (1 + band) });
+    lower.push({ x: index, y: priceMid * (1 - band) });
+  }
+
+  return {
+    mid: { label: `${symbol} projection`, color, dash: [6, 4], points: mid },
+    upper: { label: "upper", color: "#5fe1a3", dash: [3, 3], points: upper },
+    lower: { label: "lower", color: "#ff8b7c", dash: [3, 3], points: lower }
+  };
+}
+
+function drawChart(canvas, datasets) {
+  const context = canvas.getContext("2d");
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  canvas.width = Math.max(600, Math.floor(width));
+  canvas.height = Math.max(240, Math.floor(height));
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  const margin = { left: 50, right: 20, top: 20, bottom: 30 };
+  const plotWidth = canvas.width - margin.left - margin.right;
+  const plotHeight = canvas.height - margin.top - margin.bottom;
+
+  let xMin = Infinity;
+  let xMax = -Infinity;
+  let yMin = Infinity;
+  let yMax = -Infinity;
+
+  for (const dataset of datasets) {
+    for (const point of dataset.points) {
+      if (point.x < xMin) {
+        xMin = point.x;
+      }
+      if (point.x > xMax) {
+        xMax = point.x;
+      }
+      if (point.y < yMin) {
+        yMin = point.y;
+      }
+      if (point.y > yMax) {
+        yMax = point.y;
+      }
+    }
+  }
+
+  if (!Number.isFinite(xMin) || !Number.isFinite(yMin)) {
+    return;
+  }
+
+  const pad = (yMax - yMin) * 0.08 || 1;
+  yMin -= pad;
+  yMax += pad;
+
+  const xToPx = (value) => margin.left + (plotWidth * (value - xMin)) / (xMax - xMin || 1);
+  const yToPx = (value) => margin.top + plotHeight - (plotHeight * (value - yMin)) / (yMax - yMin || 1);
+
+  context.strokeStyle = "#1f2937";
+  context.lineWidth = 1;
+  context.setLineDash([]);
+  context.beginPath();
+  for (let index = 0; index <= 8; index += 1) {
+    const x = margin.left + (plotWidth * index) / 8;
+    context.moveTo(x, margin.top);
+    context.lineTo(x, margin.top + plotHeight);
+  }
+  for (let index = 0; index <= 5; index += 1) {
+    const y = margin.top + (plotHeight * index) / 5;
+    context.moveTo(margin.left, y);
+    context.lineTo(margin.left + plotWidth, y);
+  }
+  context.stroke();
+
+  context.fillStyle = "#95a4bf";
+  context.font = "12px Aptos, sans-serif";
+  context.fillText("Price", 8, margin.top + 12);
+  context.fillText("Time", margin.left + plotWidth - 40, margin.top + plotHeight + 24);
+
+  for (let index = 0; index <= 5; index += 1) {
+    const value = yMax - (yMax - yMin) * (index / 5);
+    const y = margin.top + (plotHeight * index) / 5;
+    context.fillText(fmtNumber(value), 6, y + 4);
+  }
+
+  for (const dataset of datasets) {
+    context.lineWidth = 2;
+    context.strokeStyle = dataset.color || "#63d2ff";
+    context.setLineDash(dataset.dash || []);
+    context.beginPath();
+    dataset.points.forEach((point, index) => {
+      const x = xToPx(point.x);
+      const y = yToPx(point.y);
+      if (index === 0) {
+        context.moveTo(x, y);
+      } else {
+        context.lineTo(x, y);
+      }
+    });
+    context.stroke();
+  }
+
+  const first = datasets[0];
+  if (first?.points?.length) {
+    const lastPoint = first.points[first.points.length - 1];
+    context.fillStyle = "#ffffff";
+    context.beginPath();
+    context.arc(xToPx(lastPoint.x), yToPx(lastPoint.y), 3, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
+function renderLegend(datasets) {
+  elements.chartLegend.innerHTML = datasets.map((dataset) => {
+    const dashed = dataset.dash?.length ? "dashed" : "";
+    return `
+      <div class="legend-item" style="color:${dataset.color}">
+        <span class="legend-dot ${dashed}"></span>
+        <span>${escapeHtml(dataset.label)}</span>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderChart() {
+  syncStateFromInputs();
+  elements.chartStatus.textContent = "";
+  const symbol = elements.chartSymbol.value;
+  if (!symbol) {
+    elements.chartStatus.textContent = "Select a symbol.";
+    return;
+  }
+
+  const historySeries = buildHistorySeries(symbol, Math.max(20, state.charts.historyPoints));
+  const projection = computeProjectionSeries(
+    symbol,
+    Math.min(state.charts.projectionMinutes, state.settings.horizonMinutes),
+    state.charts.noiseLevel
+  );
+
+  const lastX = historySeries.points.length ? historySeries.points[historySeries.points.length - 1].x : 0;
+  const projectionDatasets = ["mid", "upper", "lower"].map((key) => ({
+    label: projection[key].label,
+    color: projection[key].color,
+    dash: projection[key].dash,
+    points: projection[key].points.map((point, index) => ({ x: lastX + index, y: point.y }))
+  }));
+
+  const datasets = [historySeries, ...projectionDatasets];
+  drawChart(elements.priceChart, datasets);
+  renderLegend(datasets);
+  elements.chartStatus.textContent = `Chart rendered for ${symbol}.`;
+}
+
+async function runDeskFlow(prefix = "") {
+  setStatus(elements.deskStatus, `${prefix}Running desk...`);
+  const payload = collectPayload();
+  const data = await apiFetch("/api/desk/run", payload);
+  state.latestDeskOutput = data.parsed;
+  const orders = data.parsed?.trader?.orders || [];
+  state.proposal = {
+    orders,
+    rationale: data.parsed?.trader?.rationale || "Desk proposal"
+  };
+  renderAgentCards();
+  renderProposal();
+  if (state.charts.autoUpdate) {
+    renderChart();
+  }
+  setStatus(elements.deskStatus, `${prefix}Desk run complete via ${data.transport}.`);
+}
+
 async function bootstrap() {
   const [health, bootstrapData] = await Promise.all([
-    fetch("/api/health").then((res) => res.json()),
-    fetch("/api/bootstrap").then((res) => res.json())
+    fetch("/api/health").then((response) => response.json()),
+    fetch("/api/bootstrap").then((response) => response.json())
   ]);
 
   state.defaults = bootstrapData.defaults;
@@ -385,12 +844,17 @@ async function bootstrap() {
   elements.orderSlicing.value = state.settings.orderSlicing;
   elements.maxOrders.value = state.settings.maxOrders;
   elements.urgencyBias.value = state.settings.urgencyBias;
+  elements.historyPoints.value = state.charts.historyPoints;
+  elements.projectionMinutes.value = state.charts.projectionMinutes;
+  elements.noiseLevel.value = state.charts.noiseLevel;
 
   loadSamplePortfolio();
+  renderNews();
   renderAgentCards();
   renderProposal();
   renderTrades();
   renderChat();
+  renderChart();
 }
 
 elements.portfolioBody.addEventListener("input", (event) => {
@@ -403,7 +867,13 @@ elements.portfolioBody.addEventListener("input", (event) => {
 
   const value = field === "symbol" ? target.value.toUpperCase() : Number(target.value);
   state.portfolio[index][field] = value;
+  if (field === "symbol") {
+    state.portfolio[index].symbol = String(value).trim().toUpperCase();
+  }
   renderPortfolio();
+  if (state.charts.autoUpdate) {
+    renderChart();
+  }
 });
 
 elements.portfolioBody.addEventListener("click", (event) => {
@@ -413,8 +883,15 @@ elements.portfolioBody.addEventListener("click", (event) => {
   }
 
   const index = Number(button.dataset.remove);
+  const removed = state.portfolio[index];
   state.portfolio.splice(index, 1);
+  if (removed?.symbol) {
+    delete state.history[removed.symbol];
+  }
   renderPortfolio();
+  if (state.charts.autoUpdate) {
+    renderChart();
+  }
 });
 
 elements.newsCards.addEventListener("change", (event) => {
@@ -439,6 +916,16 @@ elements.addRowButton.addEventListener("click", () => {
 elements.loadSampleButton.addEventListener("click", () => {
   loadSamplePortfolio();
   setStatus(elements.deskStatus, "Sample portfolio loaded.");
+});
+
+elements.loadSampleNewsButton.addEventListener("click", () => {
+  loadSampleNews();
+  setStatus(elements.deskStatus, "Sample news loaded. Select the articles you want to include.");
+});
+
+elements.clearNewsButton.addEventListener("click", () => {
+  clearNews();
+  setStatus(elements.deskStatus, "News selections and custom news input cleared.");
 });
 
 elements.pingButton.addEventListener("click", async () => {
@@ -468,18 +955,25 @@ elements.analyzeNewsButton.addEventListener("click", async () => {
 
 elements.runDeskButton.addEventListener("click", async () => {
   try {
-    setStatus(elements.deskStatus, "Running desk...");
-    const payload = collectPayload();
-    const data = await apiFetch("/api/desk/run", payload);
-    state.latestDeskOutput = data.parsed;
-    const orders = data.parsed?.trader?.orders || [];
-    state.proposal = {
-      orders,
-      rationale: data.parsed?.trader?.rationale || "Desk proposal"
-    };
-    renderAgentCards();
-    renderProposal();
-    setStatus(elements.deskStatus, `Desk run complete via ${data.transport}.`);
+    await runDeskFlow();
+  } catch (error) {
+    setStatus(elements.deskStatus, error.message);
+  }
+});
+
+elements.nextTickButton.addEventListener("click", async () => {
+  try {
+    advanceSyntheticMarketTick();
+    elements.cash.value = state.cash;
+    renderPortfolio();
+    if (state.charts.autoUpdate) {
+      renderChart();
+    }
+    if (state.config.projectEndpoint || state.defaults?.projectEndpoint) {
+      await runDeskFlow("Tick advanced. ");
+    } else {
+      setStatus(elements.deskStatus, "Tick advanced. Configure Foundry if you want the agents to rerun.");
+    }
   } catch (error) {
     setStatus(elements.deskStatus, error.message);
   }
@@ -497,17 +991,55 @@ elements.executeProposalButton.addEventListener("click", async () => {
       costs: state.costs,
       orders: state.proposal.orders
     });
+
     state.portfolio = data.portfolio;
     state.cash = data.cash;
     state.trades = data.trades;
     elements.cash.value = state.cash;
+
+    for (const trade of state.trades) {
+      ensureHistoryForHolding(trade.symbol, Number(trade.fillPrice));
+      const history = state.history[trade.symbol] || [];
+      history.push({
+        x: history.length ? history[history.length - 1].x + 1 : 0,
+        price: Number(trade.fillPrice)
+      });
+      state.history[trade.symbol] = history.slice(-240);
+    }
+
     renderPortfolio();
     renderTrades();
+    if (state.charts.autoUpdate) {
+      renderChart();
+    }
     setStatus(elements.deskStatus, `Executed ${data.trades.length} simulated fills.`);
   } catch (error) {
     setStatus(elements.deskStatus, error.message);
   }
 });
+
+elements.renderChartButton.addEventListener("click", () => {
+  try {
+    renderChart();
+  } catch (error) {
+    setStatus(elements.deskStatus, error.message);
+  }
+});
+
+elements.autoUpdateChartButton.addEventListener("click", () => {
+  state.charts.autoUpdate = !state.charts.autoUpdate;
+  elements.autoUpdateChartButton.textContent = state.charts.autoUpdate ? "Auto-update on" : "Auto-update off";
+  elements.chartStatus.textContent = state.charts.autoUpdate ? "Chart auto-update enabled." : "Chart auto-update disabled.";
+});
+
+elements.chartSymbol.addEventListener("change", () => {
+  state.charts.selectedSymbol = elements.chartSymbol.value;
+  renderChart();
+});
+
+elements.historyPoints.addEventListener("change", renderChart);
+elements.projectionMinutes.addEventListener("change", renderChart);
+elements.noiseLevel.addEventListener("change", renderChart);
 
 elements.sendChatButton.addEventListener("click", async () => {
   try {

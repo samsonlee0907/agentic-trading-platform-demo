@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agentic Trading Platform Demo</title>
+    <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/2.1.0/uicons-bold-rounded/css/uicons-bold-rounded.css" />
+    <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/2.1.0/uicons-regular-rounded/css/uicons-regular-rounded.css" />
+    <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/2.1.0/uicons-solid-rounded/css/uicons-solid-rounded.css" />
+    <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/3.0.0/uicons-thin-straight/css/uicons-thin-straight.css" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -13,7 +17,7 @@
           <p class="eyebrow">Microsoft Foundry project endpoint demo</p>
           <h1>Agentic Trading Platform Demo</h1>
           <p class="lede">
-            GPT-5-series compatible trading simulation with server-side Azure calls, richer May 2026 fixtures, and a safer GitHub-ready repo shape.
+            GPT-5-series compatible trading simulation with server-side Azure calls, price projection charts, and visible multi-agent execution flow.
           </p>
         </div>
         <div class="hero-badge">
@@ -25,7 +29,7 @@
         <div class="panel-head">
           <div>
             <h2>Connection</h2>
-            <p>Use a Microsoft Foundry project endpoint. The backend will target `/openai/v1` and choose `responses` first.</p>
+            <p>Use a Microsoft Foundry project endpoint. The backend targets `/openai/v1`, prefers `responses`, and falls back to `chat/completions` when needed.</p>
           </div>
           <button id="pingButton" class="button accent">Ping deployment</button>
         </div>
@@ -75,15 +79,15 @@
           <div class="panel-head">
             <div>
               <h2>Portfolio Lab</h2>
-              <p>Seeded with a more current AI-infrastructure plus macro-hedge mix.</p>
+              <p>Current holdings, simulated equity, and market data seed for the desk.</p>
             </div>
             <div class="button-row">
-              <button id="loadSampleButton" class="button accent">Load sample</button>
+              <button id="loadSampleButton" class="button accent">Load sample portfolio</button>
               <button id="addRowButton" class="button">Add row</button>
             </div>
           </div>
 
-          <div class="form-grid compact">
+          <div class="form-grid compact trio">
             <label>
               <span>Cash</span>
               <input id="cash" type="number" step="0.01" />
@@ -117,16 +121,20 @@
           <div class="panel-head">
             <div>
               <h2>News Tape</h2>
-              <p>Bundled test articles are paraphrased fixtures grounded in current market themes.</p>
+              <p>Sample news stays hidden until requested. You can also add fresh headlines manually.</p>
             </div>
-            <button id="analyzeNewsButton" class="button accent">Analyze news</button>
+            <div class="button-row">
+              <button id="loadSampleNewsButton" class="button accent">Load sample news</button>
+              <button id="clearNewsButton" class="button">Clear news</button>
+              <button id="analyzeNewsButton" class="button accent">Analyze news</button>
+            </div>
           </div>
 
           <div id="newsCards" class="news-list"></div>
 
           <label class="stacked">
-            <span>Extra analyst note</span>
-            <textarea id="freeformNews" placeholder="Add a custom market note or scenario here."></textarea>
+            <span>New market news input</span>
+            <textarea id="freeformNews" placeholder="Paste or type any new market headline, macro update, company note, or breaking development here."></textarea>
           </label>
 
           <div id="newsAnalysis" class="callout muted">No news analysis yet.</div>
@@ -137,10 +145,11 @@
         <div class="panel-head">
           <div>
             <h2>Desk Controls</h2>
-            <p>Run the multi-agent desk, then confirm orders into the simulator.</p>
+            <p>Run the multi-agent desk, advance a synthetic tick, and execute proposed orders into the simulator.</p>
           </div>
           <div class="button-row">
             <button id="runDeskButton" class="button accent">Run desk</button>
+            <button id="nextTickButton" class="button">Next tick</button>
             <button id="executeProposalButton" class="button success" disabled>Execute proposal</button>
           </div>
         </div>
@@ -194,7 +203,7 @@
           <div class="panel-head">
             <div>
               <h2>Agent Output</h2>
-              <p>Desk summaries and routing rationale.</p>
+              <p>Each desk agent surfaces independently with icon-based cards so you can see which role is active.</p>
             </div>
           </div>
           <div id="agentCards" class="agent-grid"></div>
@@ -207,8 +216,52 @@
         <section class="panel">
           <div class="panel-head">
             <div>
+              <h2>Price Projection</h2>
+              <p>History and forward projection are rebuilt from portfolio prices and the latest agent signals.</p>
+            </div>
+            <div class="button-row">
+              <button id="renderChartButton" class="button accent">Render chart</button>
+              <button id="autoUpdateChartButton" class="button">Auto-update on</button>
+            </div>
+          </div>
+
+          <div class="form-grid compact chart-controls">
+            <label>
+              <span>Symbol</span>
+              <select id="chartSymbol"></select>
+            </label>
+            <label>
+              <span>History points</span>
+              <input id="historyPoints" type="number" min="20" max="220" step="5" value="90" />
+            </label>
+            <label>
+              <span>Projection minutes</span>
+              <input id="projectionMinutes" type="number" min="10" max="240" step="5" value="120" />
+            </label>
+            <label>
+              <span>Noise</span>
+              <select id="noiseLevel">
+                <option value="low">low</option>
+                <option value="medium" selected>medium</option>
+                <option value="high">high</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="chart-wrap">
+            <canvas id="priceChart"></canvas>
+          </div>
+          <div id="chartLegend" class="legend"></div>
+          <p id="chartStatus" class="status-line"></p>
+        </section>
+      </div>
+
+      <div class="layout-two">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
               <h2>Proposal Blotter</h2>
-              <p>Orders are reviewed before execution into the simulator.</p>
+              <p>Orders are reviewed before execution. Slice logic and rationale are visible.</p>
             </div>
           </div>
           <table class="table">
@@ -220,20 +273,20 @@
                 <th>Type</th>
                 <th>Limit</th>
                 <th>Urgency</th>
+                <th>Slice</th>
+                <th>Rationale</th>
               </tr>
             </thead>
             <tbody id="proposalBody"></tbody>
           </table>
           <div id="proposalSummary" class="callout muted">No proposal yet.</div>
         </section>
-      </div>
 
-      <div class="layout-two">
         <section class="panel">
           <div class="panel-head">
             <div>
               <h2>Executed Trades</h2>
-              <p>Simulated fills using configured slippage and transaction costs.</p>
+              <p>Simulated fills reflect slippage, transaction cost, and order slicing.</p>
             </div>
           </div>
           <table class="table">
@@ -250,34 +303,38 @@
             <tbody id="tradesBody"></tbody>
           </table>
         </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Desk Chat</h2>
-              <p>Route questions to a specific agent or let the model choose.</p>
-            </div>
-          </div>
-
-          <div class="chat-controls">
-            <select id="chatAgent">
-              <option value="auto">auto</option>
-              <option value="fundamental">fundamental</option>
-              <option value="sentiment">sentiment</option>
-              <option value="technical">technical</option>
-              <option value="risk">risk</option>
-              <option value="trader">trader</option>
-            </select>
-          </div>
-
-          <div id="chatMessages" class="chat-window"></div>
-
-          <div class="compose">
-            <textarea id="chatInput" placeholder="Ask about risk, macro drivers, or request an order proposal."></textarea>
-            <button id="sendChatButton" class="button accent">Send</button>
-          </div>
-        </section>
       </div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Desk Chat</h2>
+            <p>Route questions to a specific agent or let the system decide.</p>
+          </div>
+        </div>
+
+        <div class="chat-controls">
+          <select id="chatAgent">
+            <option value="auto">auto</option>
+            <option value="fundamental">fundamental</option>
+            <option value="sentiment">sentiment</option>
+            <option value="technical">technical</option>
+            <option value="risk">risk</option>
+            <option value="trader">trader</option>
+          </select>
+        </div>
+
+        <div id="chatMessages" class="chat-window"></div>
+
+        <div class="compose">
+          <textarea id="chatInput" placeholder="Ask about risk, catalysts, execution, or request a trade proposal."></textarea>
+          <button id="sendChatButton" class="button accent">Send</button>
+        </div>
+      </section>
+
+      <footer class="footer-note">
+        Agent icons use Flaticon UIcons with attribution.
+      </footer>
     </div>
 
     <script type="module" src="/app.js"></script>
