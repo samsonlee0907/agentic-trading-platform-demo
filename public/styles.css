@@ -475,6 +475,42 @@ pre {
   border-color: rgba(99, 210, 255, 0.28);
 }
 
+.cell-note {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.chat-proposal {
+  margin-top: 0.9rem;
+  padding: 0.85rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(149, 164, 191, 0.14);
+}
+
+.chat-proposal-head,
+.chat-action-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.chat-order-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.8rem 0;
+}
+
+.chat-order-row {
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.8rem;
+  background: rgba(3, 7, 18, 0.45);
+  border: 1px solid rgba(149, 164, 191, 0.12);
+}
+
 .compose {
   display: grid;
   grid-template-columns: 1fr auto;

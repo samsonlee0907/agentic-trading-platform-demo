@@ -434,12 +434,25 @@ function renderProposal() {
     : "No proposal yet.";
 }
 
+function tradeSliceLabel(trade) {
+  if (!trade?.sliceCount || trade.sliceCount <= 1) {
+    return trade?.orderIndex ? `order ${trade.orderIndex}` : "single fill";
+  }
+  return `order ${trade.orderIndex || 1} · slice ${trade.sliceIndex || 1}/${trade.sliceCount}`;
+}
+
 function renderTrades() {
   elements.tradesBody.innerHTML = state.trades.map((trade) => {
     return `
       <tr>
-        <td>${escapeHtml(trade.symbol)}</td>
-        <td>${escapeHtml(trade.side)}</td>
+        <td>
+          ${escapeHtml(trade.symbol)}
+          <div class="cell-note">${escapeHtml(tradeSliceLabel(trade))}</div>
+        </td>
+        <td>
+          ${escapeHtml(trade.side)}
+          <div class="cell-note">${trade.sliceCount > 1 ? "sliced execution" : "single execution"}</div>
+        </td>
         <td>${fmtNumber(trade.quantity, 0)}</td>
         <td>${fmtNumber(trade.fillPrice)}</td>
         <td>${fmtCurrency((trade.fee || 0) + (trade.slipCost || 0))}</td>
@@ -449,14 +462,51 @@ function renderTrades() {
   }).join("");
 }
 
+function renderChatProposal(proposal, messageIndex) {
+  const orders = proposal?.orders || [];
+  if (!orders.length) {
+    return "";
+  }
+
+  const rows = orders.slice(0, 4).map((order) => {
+    const sliceText = order.slice?.pieces > 1 ? `${order.slice.pieces}x slices` : "single";
+    return `
+      <div class="chat-order-row">
+        <div>
+          <strong>${escapeHtml(order.side?.toUpperCase() || "")}</strong> ${fmtNumber(order.quantity || 0, 0)} ${escapeHtml(order.symbol || "")}
+        </div>
+        <div class="cell-note">${escapeHtml(order.urgency || "medium")} · ${escapeHtml(sliceText)}</div>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="chat-proposal">
+      <div class="chat-proposal-head">
+        <strong>Proposed trade</strong>
+        <span class="tag">${proposal.executed ? "executed" : `${orders.length} order${orders.length === 1 ? "" : "s"}`}</span>
+      </div>
+      <div class="chat-order-list">${rows}</div>
+      <div class="cell-note">${escapeHtml(proposal.rationale || "")}</div>
+      <div class="chat-action-row">
+        <button class="button success" data-action="execute-chat-proposal" data-message-index="${messageIndex}" ${proposal.executed ? "disabled" : ""}>
+          ${proposal.executed ? "Already executed" : "Execute from chat"}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 function renderChat() {
-  elements.chatMessages.innerHTML = state.chatHistory.map((message) => {
+  elements.chatMessages.innerHTML = state.chatHistory.map((message, index) => {
     const tag = message.agent ? `<div class="tag">${escapeHtml(message.agent)}</div>` : "";
+    const proposalMarkup = message.tradeProposal ? renderChatProposal(message.tradeProposal, index) : "";
     return `
       <div class="message ${message.role}">
         <div class="bubble">
           ${tag}
           <div>${escapeWithBreaks(message.text)}</div>
+          ${proposalMarkup}
         </div>
       </div>
     `;
@@ -986,7 +1036,8 @@ function buildLocalChatReply({ preferredAgent, userText }) {
 function applyTraderProposal(tradeProposal, sourceLabel = "Trader") {
   const normalized = {
     orders: Array.isArray(tradeProposal?.orders) ? tradeProposal.orders : [],
-    rationale: tradeProposal?.rationale || `${sourceLabel} updated the proposal.`
+    rationale: tradeProposal?.rationale || `${sourceLabel} updated the proposal.`,
+    executed: Boolean(tradeProposal?.executed)
   };
   state.proposal = normalized;
 
@@ -1000,6 +1051,97 @@ function applyTraderProposal(tradeProposal, sourceLabel = "Trader") {
       rationale: normalized.rationale
     }
   };
+  return normalized;
+}
+
+function proposalSignature(proposal) {
+  return JSON.stringify({
+    orders: (proposal?.orders || []).map((order) => ({
+      symbol: order.symbol,
+      side: order.side,
+      quantity: order.quantity,
+      type: order.type,
+      limit_price: order.limit_price,
+      urgency: order.urgency,
+      slice: order.slice
+    })),
+    rationale: proposal?.rationale || ""
+  });
+}
+
+function markMatchingChatProposalsExecuted(proposal) {
+  const signature = proposalSignature(proposal);
+  for (const message of state.chatHistory) {
+    if (message.tradeProposal && proposalSignature(message.tradeProposal) === signature) {
+      message.tradeProposal = {
+        ...message.tradeProposal,
+        executed: true
+      };
+    }
+  }
+}
+
+async function executeProposalFlow(proposal = state.proposal, sourceLabel = "proposal") {
+  const orders = proposal?.orders || [];
+  if (!orders.length) {
+    return { ok: false, reason: "no_orders" };
+  }
+
+  elements.executeProposalButton.disabled = true;
+  setStatus(elements.deskStatus, `Executing ${sourceLabel}...`);
+  syncStateFromInputs();
+  const data = await apiFetch("/api/simulate/execute", {
+    portfolio: state.portfolio,
+    cash: state.cash,
+    costs: state.costs,
+    orders
+  });
+
+  state.portfolio = data.portfolio;
+  state.cash = data.cash;
+  state.trades = data.trades;
+  elements.cash.value = state.cash;
+
+  for (const trade of state.trades) {
+    ensureHistoryForHolding(trade.symbol, Number(trade.fillPrice));
+    const history = state.history[trade.symbol] || [];
+    history.push({
+      x: history.length ? history[history.length - 1].x + 1 : 0,
+      price: Number(trade.fillPrice)
+    });
+    state.history[trade.symbol] = history.slice(-240);
+  }
+
+  renderPortfolio();
+  renderTrades();
+  markMatchingChatProposalsExecuted(proposal);
+  state.proposal = {
+    orders: [],
+    rationale: data.trades.length
+      ? `Last execution completed with ${data.trades.length} simulated fill${data.trades.length === 1 ? "" : "s"}.`
+      : "No trades executed."
+  };
+  renderProposal();
+  renderChat();
+  if (state.charts.autoUpdate) {
+    renderChart();
+  }
+
+  if (data.trades.length) {
+    setStatus(elements.deskStatus, `Executed ${data.trades.length} simulated fill${data.trades.length === 1 ? "" : "s"} from ${sourceLabel}.`);
+    return { ok: true, trades: data.trades };
+  }
+
+  const reasons = Array.isArray(data.unfilledOrders)
+    ? [...new Set(data.unfilledOrders.map((item) => humanizeUnfilledReason(item.reason)).filter(Boolean))]
+    : [];
+  setStatus(
+    elements.deskStatus,
+    reasons.length
+      ? `No trades executed from ${sourceLabel}. ${reasons.join(", ")}.`
+      : `No trades executed from ${sourceLabel}.`
+  );
+  return { ok: false, unfilledOrders: data.unfilledOrders || [] };
 }
 
 function loadSamplePortfolio() {
@@ -1571,61 +1713,7 @@ elements.nextTickButton.addEventListener("click", async () => {
 
 elements.executeProposalButton.addEventListener("click", async () => {
   try {
-    if (!state.proposal?.orders?.length) {
-      return;
-    }
-    elements.executeProposalButton.disabled = true;
-    setStatus(elements.deskStatus, "Executing simulated trades...");
-    syncStateFromInputs();
-    const data = await apiFetch("/api/simulate/execute", {
-      portfolio: state.portfolio,
-      cash: state.cash,
-      costs: state.costs,
-      orders: state.proposal.orders
-    });
-
-    state.portfolio = data.portfolio;
-    state.cash = data.cash;
-    state.trades = data.trades;
-    elements.cash.value = state.cash;
-
-    for (const trade of state.trades) {
-      ensureHistoryForHolding(trade.symbol, Number(trade.fillPrice));
-      const history = state.history[trade.symbol] || [];
-      history.push({
-        x: history.length ? history[history.length - 1].x + 1 : 0,
-        price: Number(trade.fillPrice)
-      });
-      state.history[trade.symbol] = history.slice(-240);
-    }
-
-    renderPortfolio();
-    renderTrades();
-    state.proposal = {
-      orders: [],
-      rationale: data.trades.length
-        ? `Last execution completed with ${data.trades.length} simulated fill${data.trades.length === 1 ? "" : "s"}.`
-        : "No trades executed."
-    };
-    renderProposal();
-    if (state.charts.autoUpdate) {
-      renderChart();
-    }
-
-    if (data.trades.length) {
-      setStatus(elements.deskStatus, `Executed ${data.trades.length} simulated fill${data.trades.length === 1 ? "" : "s"}.`);
-      return;
-    }
-
-    const reasons = Array.isArray(data.unfilledOrders)
-      ? [...new Set(data.unfilledOrders.map((item) => humanizeUnfilledReason(item.reason)).filter(Boolean))]
-      : [];
-    setStatus(
-      elements.deskStatus,
-      reasons.length
-        ? `No trades executed. ${reasons.join(", ")}.`
-        : "No trades executed."
-    );
+    await executeProposalFlow(state.proposal, "the blotter proposal");
   } catch (error) {
     setStatus(elements.deskStatus, error.message);
   } finally {
@@ -1689,7 +1777,8 @@ elements.sendChatButton.addEventListener("click", async () => {
       replaceLastPendingAssistantMessage({
         role: "assistant",
         text: localReply.content,
-        agent: localReply.agent || "desk"
+        agent: localReply.agent || "desk",
+        tradeProposal: localReply.trade_proposal || null
       });
       if (localReply.trade_proposal) {
         applyTraderProposal(localReply.trade_proposal, "Trader route");
@@ -1716,7 +1805,8 @@ elements.sendChatButton.addEventListener("click", async () => {
     replaceLastPendingAssistantMessage({
       role: "assistant",
       text: parsed.content || data.rawText || "No chat response returned.",
-      agent: parsed.agent || "desk"
+      agent: parsed.agent || "desk",
+      tradeProposal: parsed.trade_proposal || null
     });
 
     if (parsed.trade_proposal) {
@@ -1744,6 +1834,30 @@ elements.sendChatButton.addEventListener("click", async () => {
   } finally {
     elements.sendChatButton.disabled = false;
     elements.sendChatButton.textContent = originalLabel;
+  }
+});
+
+elements.chatMessages.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action='execute-chat-proposal']");
+  if (!button) {
+    return;
+  }
+
+  const messageIndex = Number(button.dataset.messageIndex);
+  const message = state.chatHistory[messageIndex];
+  if (!message?.tradeProposal?.orders?.length) {
+    setStatus(elements.deskStatus, "No chat proposal is available to execute.");
+    return;
+  }
+
+  try {
+    button.disabled = true;
+    await executeProposalFlow(message.tradeProposal, "the chat proposal");
+  } catch (error) {
+    setStatus(elements.deskStatus, error.message);
+  } finally {
+    button.disabled = false;
+    renderChat();
   }
 });
 
