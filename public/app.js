@@ -482,6 +482,16 @@ function humanizeUnfilledReason(reason) {
   return labels[reason] || "order did not fill";
 }
 
+function replaceLastPendingAssistantMessage(message) {
+  for (let index = state.chatHistory.length - 1; index >= 0; index -= 1) {
+    if (state.chatHistory[index].role === "assistant" && state.chatHistory[index].pending) {
+      state.chatHistory[index] = message;
+      return;
+    }
+  }
+  state.chatHistory.push(message);
+}
+
 function countMatches(text, pattern) {
   const matches = String(text || "").match(pattern);
   return matches ? matches.length : 0;
@@ -880,6 +890,118 @@ function buildFallbackDeskOutput() {
   };
 }
 
+function detectRoutedAgent(preferredAgent, userText = "") {
+  if (preferredAgent && preferredAgent !== "auto") {
+    return preferredAgent;
+  }
+
+  const text = String(userText || "").toLowerCase();
+  if (/trade|order|execute|buy|sell|rebalance|proposal/.test(text)) {
+    return "trader";
+  }
+  if (/risk|hedge|drawdown|exposure|stop/.test(text)) {
+    return "risk";
+  }
+  if (/technical|chart|trend|signal|momentum/.test(text)) {
+    return "technical";
+  }
+  if (/sentiment|headline|news|tone/.test(text)) {
+    return "sentiment";
+  }
+  if (/fundamental|valuation|earnings|thesis/.test(text)) {
+    return "fundamental";
+  }
+  return "trader";
+}
+
+function buildLocalChatReply({ preferredAgent, userText }) {
+  const routedAgent = detectRoutedAgent(preferredAgent, userText);
+  const desk = state.latestDeskOutput || buildFallbackDeskOutput();
+  const proposal = state.proposal?.orders?.length
+    ? state.proposal
+    : { orders: desk.trader?.orders || [], rationale: desk.trader?.rationale || "" };
+  const totalOrders = proposal.orders?.length || 0;
+
+  if (routedAgent === "trader") {
+    const orderPreview = totalOrders
+      ? proposal.orders
+        .slice(0, 3)
+        .map((order) => `${order.side.toUpperCase()} ${order.quantity} ${order.symbol}`)
+        .join(", ")
+      : "No immediate order is justified from the current setup.";
+
+    return {
+      agent: "trader",
+      confidence: desk.meta?.confidence || 0.62,
+      content: totalOrders
+        ? `Trader route is active. Strategy: ${desk.trader?.strategy || "execution"}. Proposed ${totalOrders} order${totalOrders === 1 ? "" : "s"} for execution: ${orderPreview}.`
+        : `Trader route is active. ${desk.trader?.rationale || "No immediate trade proposal is available."}`,
+      trade_proposal: totalOrders
+        ? {
+          orders: proposal.orders,
+          rationale: `Trader route proposed ${totalOrders} order${totalOrders === 1 ? "" : "s"} for execution. ${proposal.rationale || desk.trader?.rationale || ""}`.trim()
+        }
+        : {
+          orders: [],
+          rationale: desk.trader?.rationale || "Trader reviewed the setup and kept a no-trade stance."
+        }
+    };
+  }
+
+  if (routedAgent === "risk") {
+    return {
+      agent: "risk",
+      confidence: desk.agents?.risk?.confidence || 0.7,
+      content: `${desk.agents?.risk?.notes || "Risk view unavailable."} Current trader plan carries ${totalOrders} proposed order${totalOrders === 1 ? "" : "s"}${totalOrders ? " into the execution blotter" : ""}.`
+    };
+  }
+
+  if (routedAgent === "technical") {
+    const signals = (desk.agents?.technical?.signals || [])
+      .slice(0, 4)
+      .map((signal) => `${signal.symbol} ${signal.signal}`)
+      .join(", ");
+    return {
+      agent: "technical",
+      confidence: desk.agents?.technical?.confidence || 0.6,
+      content: `${desk.agents?.technical?.summary || "Technical view unavailable."}${signals ? ` Signals: ${signals}.` : ""}`
+    };
+  }
+
+  if (routedAgent === "sentiment") {
+    return {
+      agent: "sentiment",
+      confidence: state.newsAnalysis?.confidence || desk.agents?.sentiment?.confidence || 0.6,
+      content: state.newsAnalysis?.summary || desk.agents?.sentiment?.summary || "Sentiment view unavailable."
+    };
+  }
+
+  return {
+    agent: "fundamental",
+    confidence: desk.agents?.fundamental?.confidence || 0.62,
+    content: desk.agents?.fundamental?.summary || "Fundamental view unavailable."
+  };
+}
+
+function applyTraderProposal(tradeProposal, sourceLabel = "Trader") {
+  const normalized = {
+    orders: Array.isArray(tradeProposal?.orders) ? tradeProposal.orders : [],
+    rationale: tradeProposal?.rationale || `${sourceLabel} updated the proposal.`
+  };
+  state.proposal = normalized;
+
+  const desk = state.latestDeskOutput || buildFallbackDeskOutput();
+  state.latestDeskOutput = {
+    ...desk,
+    trader: {
+      ...(desk.trader || {}),
+      strategy: normalized.orders.length ? (desk.trader?.strategy || "execution") : (desk.trader?.strategy || "hold"),
+      orders: normalized.orders,
+      rationale: normalized.rationale
+    }
+  };
+}
+
 function loadSamplePortfolio() {
   const sample = state.samplePortfolio;
   state.portfolio = sample.holdings.map((item) => ({
@@ -1272,7 +1394,7 @@ async function runDeskFlow(prefix = "") {
     elements.deskStatus,
     hasLiveOrders
       ? `${prefix}Desk run complete via ${data.transport}.`
-      : `${prefix}Desk run complete via ${data.transport}; local trader proposal filled in missing execution logic.`
+      : `${prefix}Desk run complete via ${data.transport}. Proposal updated with the local execution plan.`
   );
 }
 
@@ -1535,40 +1657,93 @@ elements.projectionMinutes.addEventListener("change", renderChart);
 elements.noiseLevel.addEventListener("change", renderChart);
 
 elements.sendChatButton.addEventListener("click", async () => {
+  const originalLabel = elements.sendChatButton.textContent;
   try {
     const userText = elements.chatInput.value.trim();
     if (!userText) {
       return;
     }
 
+    syncStateFromInputs();
     state.chatHistory.push({ role: "user", text: userText });
+    state.chatHistory.push({ role: "assistant", text: "Writing response...", agent: "desk", pending: true });
     renderChat();
     elements.chatInput.value = "";
+    elements.sendChatButton.disabled = true;
+    elements.sendChatButton.textContent = "Writing...";
+    setStatus(elements.deskStatus, "Desk is writing a response...");
 
     const payload = {
       ...collectPayload(),
-      chatHistory: state.chatHistory,
+      chatHistory: state.chatHistory.filter((message) => !message.pending),
       preferredAgent: elements.chatAgent.value,
       userText,
       latestDeskOutput: state.latestDeskOutput
     };
 
+    if (!hasFoundryConfig()) {
+      const localReply = buildLocalChatReply({
+        preferredAgent: elements.chatAgent.value,
+        userText
+      });
+      replaceLastPendingAssistantMessage({
+        role: "assistant",
+        text: localReply.content,
+        agent: localReply.agent || "desk"
+      });
+      if (localReply.trade_proposal) {
+        applyTraderProposal(localReply.trade_proposal, "Trader route");
+        renderProposal();
+        renderAgentCards();
+        setStatus(
+          elements.deskStatus,
+          localReply.trade_proposal.orders?.length
+            ? `Chat updated the execution blotter with ${localReply.trade_proposal.orders.length} proposed order${localReply.trade_proposal.orders.length === 1 ? "" : "s"}.`
+            : "Chat generated a local desk response."
+        );
+      } else {
+        setStatus(elements.deskStatus, "Chat generated a local desk response.");
+      }
+      renderChat();
+      return;
+    }
+
     const data = await apiFetch("/api/chat", payload);
-    const parsed = data.parsed || {};
-    state.chatHistory.push({
+    const parsed = data.parsed || buildLocalChatReply({
+      preferredAgent: elements.chatAgent.value,
+      userText
+    });
+    replaceLastPendingAssistantMessage({
       role: "assistant",
-      text: parsed.content || data.rawText,
+      text: parsed.content || data.rawText || "No chat response returned.",
       agent: parsed.agent || "desk"
     });
 
-    if (parsed.trade_proposal?.orders?.length) {
-      state.proposal = parsed.trade_proposal;
+    if (parsed.trade_proposal) {
+      applyTraderProposal(parsed.trade_proposal, "Trader route");
       renderProposal();
+      renderAgentCards();
+      setStatus(
+        elements.deskStatus,
+        parsed.trade_proposal.orders?.length
+          ? `Trader route proposed ${parsed.trade_proposal.orders.length} order${parsed.trade_proposal.orders.length === 1 ? "" : "s"} for execution.`
+          : `Desk chat responded via ${data.transport}.`
+      );
+    } else {
+      setStatus(elements.deskStatus, `Desk chat responded via ${data.transport}.`);
     }
-
     renderChat();
   } catch (error) {
+    replaceLastPendingAssistantMessage({
+      role: "assistant",
+      text: "The desk could not return a live chat response. Try again or use the local desk controls.",
+      agent: "desk"
+    });
+    renderChat();
     setStatus(elements.deskStatus, error.message);
+  } finally {
+    elements.sendChatButton.disabled = false;
+    elements.sendChatButton.textContent = originalLabel;
   }
 });
 
