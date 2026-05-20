@@ -98,7 +98,7 @@ const elements = {
 
 const AGENT_META = {
   market: { title: "Market View", icon: "fi fi-br-algorithm", color: "#7dd3fc" },
-  fundamental: { title: "Fundamental", icon: "fi fi-br-analytics", color: "#63d2ff" },
+  fundamental: { title: "Fundamental", icon: "fi fi-sr-earnings", color: "#63d2ff" },
   sentiment: { title: "Sentiment", icon: "fi fi-sr-messages", color: "#f472b6" },
   technical: { title: "Technical", icon: "fi fi-rr-stats", color: "#a78bfa" },
   risk: { title: "Risk Manager", icon: "fi fi-sr-shield", color: "#f59e0b" },
@@ -468,6 +468,176 @@ function setStatus(target, message) {
   target.textContent = message;
 }
 
+function hasFoundryConfig() {
+  const endpoint = (state.config.projectEndpoint || state.defaults?.projectEndpoint || "").trim();
+  const key = (state.config.apiKey || "").trim() || Boolean(state.defaults?.hasServerKey);
+  return Boolean(endpoint && key);
+}
+
+function inferNewsBias() {
+  const selectedArticles = state.sampleNews.filter((article) => state.selectedNewsIds.has(article.id));
+  const joined = [
+    ...selectedArticles.map((article) => `${article.title} ${article.summary} ${article.market_impact} ${article.body}`),
+    state.freeformNews
+  ].join(" ").toLowerCase();
+
+  const aiPositive = /ai|capex|compute|semiconductor|cloud|infrastructure|hyperscaler/.test(joined);
+  const oilInflation = /oil|opec|energy|inflation|yield|treasury|higher-for-longer/.test(joined);
+  const regulatory = /antitrust|regulator|dominance|investigation|probe/.test(joined);
+
+  return {
+    aiPositive,
+    oilInflation,
+    regulatory,
+    joined
+  };
+}
+
+function buildFallbackOrders(portfolio, settings) {
+  const bias = inferNewsBias();
+  const orders = [];
+  const symbols = new Set(portfolio.map((item) => item.symbol));
+  const availableCash = Math.max(0, state.cash);
+
+  function pushOrder(symbol, side, confidence, rationale) {
+    if (!symbols.has(symbol) || orders.length >= settings.maxOrders) {
+      return;
+    }
+
+    const holding = portfolio.find((item) => item.symbol === symbol);
+    if (!holding || !Number.isFinite(holding.price) || holding.price <= 0) {
+      return;
+    }
+
+    const baseQty = side === "buy"
+      ? Math.max(5, Math.floor((availableCash * (0.035 + confidence * 0.03)) / holding.price))
+      : Math.max(5, Math.floor(Math.abs(holding.quantity) * (0.08 + confidence * 0.08)));
+
+    const quantity = Math.max(1, baseQty);
+    orders.push({
+      symbol,
+      side,
+      quantity,
+      type: "limit",
+      limit_price: Number((holding.price * (side === "buy" ? 0.998 : 1.002)).toFixed(2)),
+      urgency: confidence > 0.68 ? "high" : confidence > 0.52 ? "medium" : "low",
+      slice: settings.orderSlicing === "off"
+        ? { pieces: 1, interval_seconds: 0 }
+        : { pieces: quantity > 60 ? 3 : 2, interval_seconds: quantity > 60 ? 45 : 30 },
+      rationale
+    });
+  }
+
+  if (bias.aiPositive) {
+    pushOrder("NVDA", "buy", 0.82, "AI capex tone remains supportive for core compute exposure.");
+    pushOrder("MSFT", "buy", 0.7, "Enterprise AI platform strength supports incremental cloud exposure.");
+    pushOrder("AVGO", "buy", 0.64, "Custom silicon and networking exposure benefits from infrastructure demand.");
+  }
+
+  if (bias.oilInflation) {
+    pushOrder("XOM", "buy", 0.76, "Energy acts as an inflation and supply-risk hedge.");
+    pushOrder("JPM", "buy", 0.58, "Higher-rate backdrop can support large-cap financial resilience.");
+  }
+
+  if (bias.regulatory) {
+    pushOrder("GOOGL", "sell", 0.55, "Regulatory pressure trims conviction for internet platform risk.");
+    pushOrder("MSFT", "sell", 0.46, "Policy scrutiny argues for position discipline rather than a full exit.");
+  }
+
+  if (!orders.length) {
+    const first = portfolio[0];
+    if (first) {
+      pushOrder(first.symbol, first.quantity >= 0 ? "buy" : "sell", 0.5, "Local demo fallback rebalances the lead position conservatively.");
+    }
+  }
+
+  return orders.slice(0, settings.maxOrders);
+}
+
+function buildFallbackDeskOutput() {
+  syncStateFromInputs();
+  const portfolio = state.portfolio;
+  const settings = state.settings;
+  const bias = inferNewsBias();
+
+  const techSignals = portfolio.slice(0, 6).map((holding, index) => {
+    let signal = index % 2 === 0 ? "bullish" : "neutral";
+    let strength = 0.48 + index * 0.05;
+
+    if (bias.aiPositive && ["NVDA", "MSFT", "AMZN", "GOOGL", "AVGO"].includes(holding.symbol)) {
+      signal = "bullish";
+      strength = 0.72;
+    }
+    if (bias.oilInflation && ["XOM", "GLD", "JPM"].includes(holding.symbol)) {
+      signal = "bullish";
+      strength = Math.max(strength, 0.66);
+    }
+    if (bias.regulatory && ["GOOGL", "MSFT"].includes(holding.symbol)) {
+      signal = "bearish";
+      strength = 0.57;
+    }
+
+    return {
+      symbol: holding.symbol,
+      signal,
+      strength: Number(clamp(strength, 0.2, 0.9).toFixed(2))
+    };
+  });
+
+  const orders = buildFallbackOrders(portfolio, settings);
+
+  return {
+    market_view: {
+      regime: bias.oilInflation ? "mixed" : bias.aiPositive ? "risk_on" : "mixed",
+      key_drivers: [
+        bias.aiPositive ? "AI infrastructure spending remains a primary equity driver." : "AI leadership remains important but less explicit in the tape.",
+        bias.oilInflation ? "Oil and yield pressure keep macro hedges relevant." : "Macro pressure is manageable in the fallback view.",
+        bias.regulatory ? "Large-cap platform regulation is a live sentiment drag." : "Regulatory pressure is not the dominant fallback signal."
+      ],
+      confidence: 0.64
+    },
+    agents: {
+      fundamental: {
+        summary: bias.aiPositive
+          ? "The fundamental backdrop still favors AI compute, cloud, and infrastructure leaders."
+          : "The fallback desk keeps a balanced view and leans on existing portfolio leaders.",
+        confidence: 0.67
+      },
+      sentiment: {
+        summary: bias.oilInflation
+          ? "Macro sentiment is split: supportive for hedges and energy, less friendly for duration-heavy growth."
+          : "Sentiment is constructive with selective caution around crowded names.",
+        confidence: 0.62
+      },
+      technical: {
+        summary: "Local fallback technical view derived from portfolio leaders and current news bias.",
+        signals: techSignals,
+        confidence: 0.59
+      },
+      risk: {
+        limits: {
+          max_position_per_symbol_pct: 18,
+          max_gross_exposure_pct: 135,
+          stop_loss_pct: 6
+        },
+        notes: "Fallback desk keeps sizing moderate and prefers sliced orders for larger tickets.",
+        confidence: 0.74
+      }
+    },
+    trader: {
+      strategy: bias.oilInflation ? "risk_reduction" : settings.strategy || "multi_agent",
+      orders,
+      rationale: orders.length
+        ? "Fallback demo proposal generated locally because a full Foundry trader decision was not available."
+        : "No actionable fallback order generated."
+    },
+    meta: {
+      confidence: 0.61,
+      horizon_minutes: settings.horizonMinutes
+    }
+  };
+}
+
 function loadSamplePortfolio() {
   const sample = state.samplePortfolio;
   state.portfolio = sample.holdings.map((item) => ({
@@ -486,6 +656,12 @@ function loadSamplePortfolio() {
   elements.slippageBps.value = state.costs.slippageBps;
 
   renderPortfolio();
+  state.latestDeskOutput = buildFallbackDeskOutput();
+  state.proposal = {
+    orders: state.latestDeskOutput?.trader?.orders || [],
+    rationale: state.latestDeskOutput?.trader?.rationale || "Local fallback proposal"
+  };
+  renderAgentCards();
   renderProposal();
   renderTrades();
   if (state.charts.autoUpdate) {
@@ -803,13 +979,32 @@ function renderChart() {
 
 async function runDeskFlow(prefix = "") {
   setStatus(elements.deskStatus, `${prefix}Running desk...`);
+
+  if (!hasFoundryConfig()) {
+    state.latestDeskOutput = buildFallbackDeskOutput();
+    state.proposal = {
+      orders: state.latestDeskOutput?.trader?.orders || [],
+      rationale: state.latestDeskOutput?.trader?.rationale || "Local fallback proposal"
+    };
+    renderAgentCards();
+    renderProposal();
+    if (state.charts.autoUpdate) {
+      renderChart();
+    }
+    setStatus(elements.deskStatus, `${prefix}Desk run complete via local demo engine. Add Foundry config to replace this with live model output.`);
+    return;
+  }
+
   const payload = collectPayload();
   const data = await apiFetch("/api/desk/run", payload);
-  state.latestDeskOutput = data.parsed;
-  const orders = data.parsed?.trader?.orders || [];
+  state.latestDeskOutput = data.parsed || buildFallbackDeskOutput();
+  const orders = state.latestDeskOutput?.trader?.orders?.length
+    ? state.latestDeskOutput.trader.orders
+    : buildFallbackDeskOutput().trader.orders;
+
   state.proposal = {
     orders,
-    rationale: data.parsed?.trader?.rationale || "Desk proposal"
+    rationale: state.latestDeskOutput?.trader?.rationale || "Fallback proposal used because the live desk returned no orders."
   };
   renderAgentCards();
   renderProposal();
