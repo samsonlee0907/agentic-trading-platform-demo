@@ -1,0 +1,16 @@
+{
+  "name": "agentic-trading-platform-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trading desk simulator using a Microsoft Foundry project endpoint with GPT-5-series support.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "lint": "node --check server.js && node --check public/app.js && node --check lib/env.js && node --check lib/foundry.js && node --check lib/prompts.js && node --check lib/simulation.js && node --check lib/validators.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

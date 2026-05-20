@@ -1,0 +1,60 @@
+{
+  "id": "may-2026-ai-barbell",
+  "name": "AI Infra Barbell - May 2026",
+  "notes": "A concentrated AI-infrastructure portfolio with macro hedges in energy, gold, and cash. It reflects strong AI capex leadership with explicit protection against yield and geopolitical stress.",
+  "cash": 245000,
+  "costs": {
+    "txnCostBps": 2,
+    "slippageBps": 6
+  },
+  "holdings": [
+    {
+      "symbol": "NVDA",
+      "quantity": 240,
+      "price": 220.61,
+      "thesis": "Core AI compute winner heading into earnings."
+    },
+    {
+      "symbol": "MSFT",
+      "quantity": 130,
+      "price": 417.42,
+      "thesis": "Cloud and enterprise AI platform exposure."
+    },
+    {
+      "symbol": "AMZN",
+      "quantity": 160,
+      "price": 259.34,
+      "thesis": "AWS and cloud demand continuation."
+    },
+    {
+      "symbol": "GOOGL",
+      "quantity": 110,
+      "price": 387.66,
+      "thesis": "AI capex plus ad/search optionality."
+    },
+    {
+      "symbol": "AVGO",
+      "quantity": 80,
+      "price": 411.07,
+      "thesis": "Networking and custom silicon leverage to AI buildout."
+    },
+    {
+      "symbol": "JPM",
+      "quantity": 140,
+      "price": 295.7,
+      "thesis": "Large-cap financial quality exposure."
+    },
+    {
+      "symbol": "XOM",
+      "quantity": 180,
+      "price": 162.55,
+      "thesis": "Energy hedge against supply risk and inflation."
+    },
+    {
+      "symbol": "GLD",
+      "quantity": 90,
+      "price": 411.5,
+      "thesis": "Defensive hedge against macro and policy volatility."
+    }
+  ]
+}

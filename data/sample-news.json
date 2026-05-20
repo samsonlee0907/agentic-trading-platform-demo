@@ -1,0 +1,57 @@
+[
+  {
+    "id": "ai-capex-watch",
+    "title": "AI spending stays central as markets wait for Nvidia and retail signals",
+    "date": "2026-05-15",
+    "source": "Reuters reporting cited by U.S. News",
+    "source_url": "https://money.usnews.com/investing/news/articles/2026-05-15/nvidia-retailer-reports-to-shed-light-on-ai-boom-consumer-spending",
+    "tickers": ["NVDA", "MSFT", "AMZN", "GOOGL", "AVGO"],
+    "market_impact": "bullish tech, mixed broad risk",
+    "summary": "Markets are still being driven by the AI buildout theme, but investors want near-term confirmation from Nvidia and consumer-facing earnings before pushing risk higher again.",
+    "body": "Testing angle: treat this as a pro-growth but not all-clear headline. It supports semiconductor, hyperscaler, and infrastructure names, but the signal is strongest when the portfolio already leans into AI capex winners. It does not remove macro rate risk."
+  },
+  {
+    "id": "higher-for-longer-yields",
+    "title": "Investors brace for higher Treasury yields as inflation risk stays sticky",
+    "date": "2026-05-14",
+    "source": "Reuters reporting cited by U.S. News and Yahoo Finance",
+    "source_url": "https://money.usnews.com/investing/news/articles/2026-05-14/analysis-investors-gird-for-high-us-treasury-yields-as-new-fed-chair-warsh-battles-inflation",
+    "tickers": ["JPM", "GLD"],
+    "market_impact": "bearish long-duration growth, supportive for financials and hedges",
+    "summary": "Investors are positioning for persistently elevated yields while inflation concerns remain unresolved.",
+    "body": "Testing angle: rate-sensitive growth multiples should face pressure under this scenario. Quality banks can benefit from the higher-rate backdrop, while hedges such as gold and cash buffers become more relevant."
+  },
+  {
+    "id": "oil-supply-stress",
+    "title": "Oil market outlook remains stressed by conflict and shipping disruption assumptions",
+    "date": "2026-05-13",
+    "source": "IEA and OPEC May 2026 market reports",
+    "source_url": "https://www.iea.org/reports/oil-market-report-may-2026",
+    "tickers": ["XOM", "GLD"],
+    "market_impact": "bullish energy, inflationary for broader equities",
+    "summary": "The oil backdrop is being shaped by supply disruption assumptions and slower demand expectations, leaving inflation-sensitive assets in focus.",
+    "body": "Testing angle: energy producers can work as portfolio hedges even when broader equities struggle with inflation and rate pressure. Treat this as positive for integrated energy and mixed to negative for rate-sensitive growth."
+  },
+  {
+    "id": "google-antitrust",
+    "title": "Google offers policy changes in Europe to reduce antitrust pressure",
+    "date": "2026-05-07",
+    "source": "Reuters reporting cited by The Star",
+    "source_url": "https://www.thestar.com.my/tech/tech-news/2026/05/07/google-offers-changes-to-spam-policy-to-avert-eu-antitrust-fine",
+    "tickers": ["GOOGL"],
+    "market_impact": "mixed for large-cap internet",
+    "summary": "Alphabet is attempting to reduce European regulatory pressure with policy changes, but the headline keeps platform regulation in focus.",
+    "body": "Testing angle: use this as a mild overhang rather than a thesis breaker. It adds execution and policy risk to platform stocks without immediately changing demand for AI infrastructure."
+  },
+  {
+    "id": "microsoft-uk-probe",
+    "title": "Britain opens a software dominance investigation into Microsoft",
+    "date": "2026-05-14",
+    "source": "Reuters reporting cited by Channel News Asia",
+    "source_url": "https://www.channelnewsasia.com/business/britain-investigates-microsoft-over-business-software-dominance-6121356",
+    "tickers": ["MSFT"],
+    "market_impact": "regulatory overhang on software leaders",
+    "summary": "UK regulators are investigating Microsoft's position in business software, adding another policy risk thread for mega-cap tech.",
+    "body": "Testing angle: this is a manageable but negative headline for sentiment. It should reduce conviction slightly rather than force a hard exit from a structurally strong cloud and AI name."
+  }
+]
