@@ -41,3 +41,18 @@ test("simulateExecution applies buys and cash changes", () => {
   assert.ok(execution.cash < 10000);
   assert.equal(execution.trades.length, 1);
 });
+
+test("simulateExecution reports unfilled non-marketable limit orders", () => {
+  const execution = simulateExecution({
+    portfolio: [{ symbol: "NVDA", quantity: 10, price: 220 }],
+    cash: 10000,
+    costs: { txnCostBps: 2, slippageBps: 6 },
+    orders: [{ symbol: "NVDA", side: "buy", quantity: 5, type: "limit", limit_price: 219.5, urgency: "medium" }]
+  });
+
+  const updated = execution.portfolio.find((item) => item.symbol === "NVDA");
+  assert.equal(updated.quantity, 10);
+  assert.equal(execution.trades.length, 0);
+  assert.equal(execution.unfilledOrders.length, 1);
+  assert.equal(execution.unfilledOrders[0].reason, "limit_below_market");
+});

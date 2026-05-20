@@ -468,6 +468,20 @@ function setStatus(target, message) {
   target.textContent = message;
 }
 
+function humanizeUnfilledReason(reason) {
+  const labels = {
+    invalid_order: "invalid order shape",
+    missing_quote: "missing portfolio quote",
+    no_position: "no position available to sell",
+    limit_below_market: "buy limit was below market",
+    limit_above_market: "sell limit was above market",
+    insufficient_cash: "insufficient cash",
+    insufficient_position: "insufficient position size",
+    not_filled: "order did not fill"
+  };
+  return labels[reason] || "order did not fill";
+}
+
 function countMatches(text, pattern) {
   const matches = String(text || "").match(pattern);
   return matches ? matches.length : 0;
@@ -727,8 +741,10 @@ function buildFallbackOrders(portfolio, settings) {
       symbol: candidate.holding.symbol,
       side,
       quantity,
-      type: "limit",
-      limit_price: Number((candidate.holding.price * (side === "buy" ? 0.9985 : 1.0015)).toFixed(2)),
+      type: conviction >= 0.9 ? "market" : "limit",
+      limit_price: conviction >= 0.9
+        ? null
+        : Number((candidate.holding.price * (side === "buy" ? 1.002 : 0.998)).toFixed(2)),
       urgency: conviction >= 1 ? "high" : conviction >= 0.55 ? "medium" : "low",
       slice: buildSlice(quantity, estimatedNotional),
       rationale: candidate.reasons.slice(0, 2).join(". ")
@@ -743,8 +759,8 @@ function buildFallbackOrders(portfolio, settings) {
         symbol: first.symbol,
         side: "buy",
         quantity,
-        type: "limit",
-        limit_price: Number((first.price * 0.999).toFixed(2)),
+        type: "market",
+        limit_price: null,
         urgency: "low",
         slice: buildSlice(quantity, quantity * first.price),
         rationale: "No dominant headline shock was detected, so the local desk keeps a small rebalance into the lead conviction name."
@@ -1436,6 +1452,8 @@ elements.executeProposalButton.addEventListener("click", async () => {
     if (!state.proposal?.orders?.length) {
       return;
     }
+    elements.executeProposalButton.disabled = true;
+    setStatus(elements.deskStatus, "Executing simulated trades...");
     syncStateFromInputs();
     const data = await apiFetch("/api/simulate/execute", {
       portfolio: state.portfolio,
@@ -1461,12 +1479,35 @@ elements.executeProposalButton.addEventListener("click", async () => {
 
     renderPortfolio();
     renderTrades();
+    state.proposal = {
+      orders: [],
+      rationale: data.trades.length
+        ? `Last execution completed with ${data.trades.length} simulated fill${data.trades.length === 1 ? "" : "s"}.`
+        : "No trades executed."
+    };
+    renderProposal();
     if (state.charts.autoUpdate) {
       renderChart();
     }
-    setStatus(elements.deskStatus, `Executed ${data.trades.length} simulated fills.`);
+
+    if (data.trades.length) {
+      setStatus(elements.deskStatus, `Executed ${data.trades.length} simulated fill${data.trades.length === 1 ? "" : "s"}.`);
+      return;
+    }
+
+    const reasons = Array.isArray(data.unfilledOrders)
+      ? [...new Set(data.unfilledOrders.map((item) => humanizeUnfilledReason(item.reason)).filter(Boolean))]
+      : [];
+    setStatus(
+      elements.deskStatus,
+      reasons.length
+        ? `No trades executed. ${reasons.join(", ")}.`
+        : "No trades executed."
+    );
   } catch (error) {
     setStatus(elements.deskStatus, error.message);
+  } finally {
+    elements.executeProposalButton.disabled = !(state.proposal?.orders?.length);
   }
 });
 
