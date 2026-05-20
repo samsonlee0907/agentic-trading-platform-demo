@@ -7,8 +7,8 @@ const state = {
     projectEndpoint: "",
     deployment: "",
     apiKey: "",
-    maxOutputTokens: 1400,
-    reasoningEffort: "minimal",
+    maxOutputTokens: 8000,
+    reasoningEffort: "medium",
     verbosity: "low"
   },
   portfolio: [],
@@ -1562,8 +1562,8 @@ async function bootstrap() {
 
   elements.projectEndpoint.value = bootstrapData.defaults.projectEndpoint || "";
   elements.deployment.value = bootstrapData.defaults.deployment || "";
-  elements.maxOutputTokens.value = bootstrapData.defaults.maxOutputTokens || 1400;
-  elements.reasoningEffort.value = bootstrapData.defaults.reasoningEffort || "minimal";
+  elements.maxOutputTokens.value = bootstrapData.defaults.maxOutputTokens || 8000;
+  elements.reasoningEffort.value = bootstrapData.defaults.reasoningEffort || "medium";
   elements.verbosity.value = bootstrapData.defaults.verbosity || "low";
   elements.strategy.value = state.settings.strategy;
   elements.riskLevel.value = state.settings.riskLevel;

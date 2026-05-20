@@ -40,14 +40,14 @@ npm start
 ```text
 FOUNDRY_PROJECT_ENDPOINT=https://<resource>.services.ai.azure.com/api/projects/<project-name>
 FOUNDRY_API_KEY=<key>
-FOUNDRY_MODEL_DEPLOYMENT=gpt-5-mini
+FOUNDRY_MODEL_DEPLOYMENT=<your-model-deployment-name>
 ```
 
 Optional values:
 
 ```text
-FOUNDRY_MAX_OUTPUT_TOKENS=1400
-FOUNDRY_REASONING_EFFORT=minimal
+FOUNDRY_MAX_OUTPUT_TOKENS=8000
+FOUNDRY_REASONING_EFFORT=medium
 FOUNDRY_VERBOSITY=low
 PORT=3000
 ```
