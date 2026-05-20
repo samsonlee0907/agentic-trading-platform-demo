@@ -2,23 +2,7 @@
 
 Agentic Trading Platform Demo is a lightweight multi-agent trading desk simulator built around Microsoft Foundry project endpoints. It combines a browser UI, a small Node backend, GPT-5-series compatibility, local execution simulation, and demo-ready portfolio and news fixtures for showcasing an end-to-end agentic trading workflow.
 
-## Screenshots
-
-Store platform screenshots in `img/` and replace the placeholders below when you are ready to publish them.
-
-Suggested image slots:
-
-- `img/platform-overview.png`
-- `img/news-and-proposal.png`
-- `img/desk-chat.png`
-
-Markdown template:
-
-```md
 ![Platform overview](img/platform-overview.png)
-![News and proposal flow](img/news-and-proposal.png)
-![Desk chat](img/desk-chat.png)
-```
 
 ## Features
 
@@ -92,6 +76,8 @@ The app remains usable even without a configured API key or Foundry project endp
 
 This makes the repository easier to share publicly without shipping secrets.
 
+![News and proposal flow](img/news-and-proposal.png)
+
 ## Scripts
 
 - `npm start`: run the local server
@@ -107,6 +93,10 @@ This makes the repository easier to share publicly without shipping secrets.
 4. Click `Run desk` to generate agent output and a trader proposal.
 5. Execute the proposal from the blotter or directly from desk chat.
 6. Review simulated fills, updated holdings, and chart projections.
+
+The desk chat can also route directly to the trader and surface executable proposals without forcing the user back to the blotter.
+
+![Desk chat](img/desk-chat.png)
 
 ## Publishing notes
 
