@@ -44,7 +44,6 @@ const state = {
 };
 
 const elements = {
-  healthBadge: document.getElementById("healthBadge"),
   connectionStatus: document.getElementById("connectionStatus"),
   deskStatus: document.getElementById("deskStatus"),
   newsAnalysis: document.getElementById("newsAnalysis"),
@@ -516,14 +515,6 @@ function renderChat() {
 
 function setStatus(target, message) {
   target.textContent = message;
-}
-
-function updateHealthBadge(health) {
-  if (health?.hasServerKey || health?.hasProjectEndpoint) {
-    elements.healthBadge.textContent = "Foundry connection configured";
-    return;
-  }
-  elements.healthBadge.textContent = "Local demo mode";
 }
 
 function humanizeUnfilledReason(reason) {
@@ -1558,8 +1549,6 @@ async function bootstrap() {
   state.samplePortfolio = bootstrapData.samplePortfolio;
   state.sampleNews = bootstrapData.sampleNews;
 
-  updateHealthBadge(health);
-
   elements.projectEndpoint.value = bootstrapData.defaults.projectEndpoint || "";
   elements.deployment.value = bootstrapData.defaults.deployment || "";
   elements.maxOutputTokens.value = bootstrapData.defaults.maxOutputTokens || 8000;
@@ -1875,6 +1864,5 @@ elements.chatInput.addEventListener("keydown", (event) => {
 });
 
 bootstrap().catch((error) => {
-  elements.healthBadge.textContent = "App unavailable";
   setStatus(elements.connectionStatus, error.message);
 });

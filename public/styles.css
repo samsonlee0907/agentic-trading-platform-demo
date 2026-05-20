@@ -80,7 +80,6 @@ h2 {
 .panel-head p,
 .status-line,
 .callout,
-.hero-badge span,
 label span,
 .footer-note,
 .empty-state {
@@ -91,14 +90,6 @@ label span,
   max-width: 58rem;
   margin: 0.8rem 0 0;
   line-height: 1.6;
-}
-
-.hero-badge {
-  padding: 0.7rem 1rem;
-  border-radius: 999px;
-  background: rgba(99, 210, 255, 0.08);
-  border: 1px solid rgba(99, 210, 255, 0.25);
-  white-space: nowrap;
 }
 
 .panel {
